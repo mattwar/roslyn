@@ -12,6 +12,9 @@ using Microsoft.CodeAnalysis.ErrorReporting;
 using Microsoft.CodeAnalysis.Host;
 using Microsoft.CodeAnalysis.Internal.Log;
 using Roslyn.Utilities;
+using Microsoft.CodeAnalysis.Diagnostics;
+using System.Runtime.CompilerServices;
+using Microsoft.CodeAnalysis.CodeInjection;
 
 namespace Microsoft.CodeAnalysis
 {
@@ -614,6 +617,8 @@ namespace Microsoft.CodeAnalysis
                         compilation = compilation.WithReferences(newReferences);
                     }
 
+                    compilation = AddInjectedCode(compilation, cancellationToken);
+
                     this.WriteState(new FinalState(State.CreateValueSource(compilation, solution.Services)), solution);
 
                     return compilation;
@@ -622,6 +627,49 @@ namespace Microsoft.CodeAnalysis
                 {
                     throw ExceptionUtilities.Unreachable;
                 }
+            }
+
+            private Compilation AddInjectedCode(Compilation compilation, CancellationToken cancellationToken)
+            {
+                var injectors = GetCodeInjectors();
+
+                var trees = CodeInjectionProcessor.Generate(compilation, injectors, cancellationToken);
+
+                if (trees.Length > 0)
+                {
+                    return compilation.AddSyntaxTrees(trees);
+                }
+                else
+                {
+                    return compilation;
+                }
+            }
+
+            private static readonly ConditionalWeakTable<ProjectInfo, ProjectInjectors> s_projectInjectors =
+                new ConditionalWeakTable<ProjectInfo, ProjectInjectors>();
+
+            private class ProjectInjectors
+            {
+                public readonly ImmutableArray<CodeInjector> Injectors;
+
+                public ProjectInjectors(ImmutableArray<CodeInjector> injectors)
+                {
+                    this.Injectors = injectors;
+                }
+            }
+
+            private ImmutableArray<CodeInjector> GetCodeInjectors()
+            {
+                ProjectInjectors pin;
+
+                if (!s_projectInjectors.TryGetValue(this.ProjectState.ProjectInfo, out pin))
+                {
+                    var assemblies = this.ProjectState.ProjectInfo.AnalyzerReferences.OfType<AnalyzerFileReference>().Select(af => af.GetAssembly());
+                    var injectors = CodeInjectionProcessor.GetInjectors(assemblies, this.ProjectState.LanguageServices.Language);
+                    pin = s_projectInjectors.GetValue(this.ProjectState.ProjectInfo, _info => new ProjectInjectors(injectors));
+                }
+
+                return pin.Injectors;
             }
 
             /// <summary>

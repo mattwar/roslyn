@@ -96,6 +96,21 @@ Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.Enumerator.Reset() -> void
 Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.Equals(Microsoft.CodeAnalysis.ChildSyntaxList.Reversed other) -> bool
 Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.GetEnumerator() -> Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.Enumerator
 Microsoft.CodeAnalysis.ChildSyntaxList.this[int index].get -> Microsoft.CodeAnalysis.SyntaxNodeOrToken
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor
+Microsoft.CodeAnalysis.CodeInjection.CodeInjector
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute.CodeInjectorAttribute(string firstLanguage, params string[] additionalLanguages) -> void
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute.Languages.get -> string[]
+Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext
+Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext.Compilation.get -> Microsoft.CodeAnalysis.Compilation
+Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext.RegisterSymbolAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext> action) -> void
+Microsoft.CodeAnalysis.CodeInjection.InjectionContext
+Microsoft.CodeAnalysis.CodeInjection.InjectionContext.RegisterCompilationAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext> action) -> void
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.AddCompilationUnit(Microsoft.CodeAnalysis.SyntaxNode root) -> void
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.CancellationToken.get -> System.Threading.CancellationToken
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.Compilation.get -> Microsoft.CodeAnalysis.Compilation
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.Symbol.get -> Microsoft.CodeAnalysis.ISymbol
 Microsoft.CodeAnalysis.CommandLineAnalyzerReference
 Microsoft.CodeAnalysis.CommandLineAnalyzerReference.CommandLineAnalyzerReference(string path) -> void
 Microsoft.CodeAnalysis.CommandLineAnalyzerReference.Equals(Microsoft.CodeAnalysis.CommandLineAnalyzerReference other) -> bool
@@ -1517,6 +1532,7 @@ abstract Microsoft.CodeAnalysis.AttributeData.CommonAttributeClass.get -> Micros
 abstract Microsoft.CodeAnalysis.AttributeData.CommonAttributeConstructor.get -> Microsoft.CodeAnalysis.IMethodSymbol
 abstract Microsoft.CodeAnalysis.AttributeData.CommonConstructorArguments.get -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.TypedConstant>
 abstract Microsoft.CodeAnalysis.AttributeData.CommonNamedArguments.get -> System.Collections.Immutable.ImmutableArray<System.Collections.Generic.KeyValuePair<string, Microsoft.CodeAnalysis.TypedConstant>>
+abstract Microsoft.CodeAnalysis.CodeInjection.CodeInjector.Initialize(Microsoft.CodeAnalysis.CodeInjection.InjectionContext context) -> void
 abstract Microsoft.CodeAnalysis.Compilation.ContainsSymbolsWithName(System.Func<string, bool> predicate, Microsoft.CodeAnalysis.SymbolFilter filter = Microsoft.CodeAnalysis.SymbolFilter.TypeAndMember, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> bool
 abstract Microsoft.CodeAnalysis.Compilation.CreateErrorTypeSymbol(Microsoft.CodeAnalysis.INamespaceOrTypeSymbol container, string name, int arity) -> Microsoft.CodeAnalysis.INamedTypeSymbol
 abstract Microsoft.CodeAnalysis.Compilation.DirectiveReferences.get -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.MetadataReference>
@@ -1929,6 +1945,8 @@ static Microsoft.CodeAnalysis.CaseInsensitiveComparison.ToLower(char c) -> char
 static Microsoft.CodeAnalysis.CaseInsensitiveComparison.ToLower(string value) -> string
 static Microsoft.CodeAnalysis.ChildSyntaxList.operator !=(Microsoft.CodeAnalysis.ChildSyntaxList list1, Microsoft.CodeAnalysis.ChildSyntaxList list2) -> bool
 static Microsoft.CodeAnalysis.ChildSyntaxList.operator ==(Microsoft.CodeAnalysis.ChildSyntaxList list1, Microsoft.CodeAnalysis.ChildSyntaxList list2) -> bool
+static Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.Generate(Microsoft.CodeAnalysis.Compilation compilation, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.CodeInjection.CodeInjector> injectors, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.SyntaxTree>
+static Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.GetInjectors(System.Collections.Generic.IEnumerable<System.Reflection.Assembly> injectionAssemblies, string language) -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.CodeInjection.CodeInjector>
 static Microsoft.CodeAnalysis.CommandLineParser.SplitCommandLineIntoArguments(string commandLine, bool removeHashComments) -> System.Collections.Generic.IEnumerable<string>
 static Microsoft.CodeAnalysis.CompilationOptions.operator !=(Microsoft.CodeAnalysis.CompilationOptions left, Microsoft.CodeAnalysis.CompilationOptions right) -> bool
 static Microsoft.CodeAnalysis.CompilationOptions.operator ==(Microsoft.CodeAnalysis.CompilationOptions left, Microsoft.CodeAnalysis.CompilationOptions right) -> bool

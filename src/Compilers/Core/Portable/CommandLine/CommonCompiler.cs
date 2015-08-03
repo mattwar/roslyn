@@ -353,6 +353,16 @@ namespace Microsoft.CodeAnalysis
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            // for now, look for code injectors in same assemblies that supplied analyzers
+            var analyzerAssemblies = Arguments.ResolveAnalyzerReferences(this.AnalyzerLoader).OfType<AnalyzerFileReference>().Select(af => af.GetAssembly());
+            var injectors = CodeInjection.CodeInjectionProcessor.GetInjectors(analyzerAssemblies, compilation.Language);
+            if (injectors.Length > 0)
+            {
+                compilation = compilation.AddSyntaxTrees(CodeInjection.CodeInjectionProcessor.Generate(compilation, injectors, cancellationToken));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
             CancellationTokenSource analyzerCts = null;
             AnalyzerManager analyzerManager = null;
             AnalyzerDriver analyzerDriver = null;
