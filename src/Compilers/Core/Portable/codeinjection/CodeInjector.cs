@@ -122,7 +122,7 @@ namespace Microsoft.CodeAnalysis.CodeInjection
                 }
             }
 
-            if (list.Count > 0)
+            if (list != null)
             {
                 return list.ToImmutableArray();
             }
