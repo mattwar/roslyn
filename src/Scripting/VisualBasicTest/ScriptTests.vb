@@ -1,12 +1,12 @@
 ' Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
 
-Imports Microsoft.CodeAnalysis.VisualBasic.UnitTests
+Imports Roslyn.Test.Utilities
 Imports Xunit
 
 Namespace Microsoft.CodeAnalysis.Scripting.VisualBasic.UnitTests
 
     Public Class ScriptTests
-        Inherits BasicTestBase
+        Inherits TestBase
 
         ' It shouldn't be necessary to include VB runtime assembly
         ' explicitly in VisualBasicScript.Create.
@@ -62,9 +62,16 @@ Namespace Microsoft.CodeAnalysis.Scripting.VisualBasic.UnitTests
 
         <Fact>
         Public Sub TestRunVoidScript()
-            Dim result = VisualBasicScript.RunAsync("Console.WriteLine(0)", DefaultOptions)
+            Dim result = VisualBasicScript.RunAsync("System.Console.WriteLine(0)", DefaultOptions)
             Dim task = result.ReturnValue
             Assert.Null(task.Result)
+        End Sub
+
+        <Fact>
+        Public Sub TestDefaultNamespaces()
+            ' If this ever changes, it is important to ensure that the 
+            ' IDE is also updated with the same default namespaces.
+            Assert.Empty(ScriptOptions.Default.Namespaces)
         End Sub
 
         Public Class Globals

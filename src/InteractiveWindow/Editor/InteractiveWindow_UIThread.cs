@@ -13,6 +13,7 @@ using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Editor.OptionsExtensionMethods;
+using Microsoft.VisualStudio.Text.Formatting;
 using Microsoft.VisualStudio.Text.Operations;
 using Microsoft.VisualStudio.Text.Projection;
 using Microsoft.VisualStudio.Utilities;
@@ -22,9 +23,9 @@ namespace Microsoft.VisualStudio.InteractiveWindow
     /// <summary>
     /// Provides implementation of a Repl Window built on top of the VS editor using projection buffers.
     /// </summary>
-    internal partial class InteractiveWindow : IInteractiveWindow, IInteractiveWindowOperations
+    internal partial class InteractiveWindow
     {
-        private UIThreadOnly _dangerous_uiOnly;
+        private readonly UIThreadOnly _dangerous_uiOnly;
 
         #region Initialization
 
@@ -35,6 +36,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
             IProjectionBufferFactoryService projectionBufferFactory,
             IEditorOperationsFactoryService editorOperationsFactory,
             ITextEditorFactoryService editorFactory,
+            IRtfBuilderService rtfBuilderService,
             IIntellisenseSessionStackMapService intellisenseSessionStackMap,
             ISmartIndentationService smartIndenterService,
             IInteractiveEvaluator evaluator)
@@ -65,7 +67,6 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                 ProjectionBufferOptions.None,
                 replContentType);
 
-            // we need to set IReplPromptProvider property before TextViewHost is instantiated so that ReplPromptTaggerProvider can bind to it 
             projBuffer.Properties.AddProperty(typeof(InteractiveWindow), this);
 
             _projectionBuffer = projBuffer;
@@ -89,8 +90,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
             _textView.Options.SetOptionValue(DefaultTextViewHostOptions.GlyphMarginId, false);
             _textView.Options.SetOptionValue(DefaultTextViewOptions.WordWrapStyleId, WordWrapStyles.WordWrap);
 
-            string lineBreak = _textView.Options.GetNewLineCharacter();
-            _lineBreakOutputSpan = new ReplSpan(lineBreak, ReplSpanKind.Output);
+            _lineBreakString = _textView.Options.GetNewLineCharacter();
             _dangerous_uiOnly.EditorOperations = editorOperationsFactory.GetEditorOperations(_textView); // Constructor runs on UI thread.
 
             _buffer = new OutputBuffer(this);
@@ -99,6 +99,8 @@ namespace Microsoft.VisualStudio.InteractiveWindow
             SortedSpans errorSpans = new SortedSpans();
             _errorOutputWriter = new InteractiveWindowWriter(this, errorSpans);
             OutputClassifierProvider.AttachToBuffer(_outputBuffer, errorSpans);
+
+            _rtfBuilderService = rtfBuilderService;
 
             RequiresUIThread();
             evaluator.CurrentWindow = this;
@@ -131,7 +133,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
         #endregion
 
-        private class UIThreadOnly
+        private sealed class UIThreadOnly
         {
             private readonly InteractiveWindow _window;
 
@@ -202,10 +204,18 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
                 if (_window._stdInputStart != null)
                 {
-                     CancelStandardInput();
+                    CancelStandardInput();
                 }
 
                 _window._buffer.Flush();
+
+                if (State == State.WaitingForInput)
+                {
+                    Debug.Assert(_window._projectionSpans.Last().Kind == ReplSpanKind.Language);
+                    StoreUncommittedInput();
+                    RemoveProjectionSpans(_window._projectionSpans.Count - 2, 2);
+                    _window._currentLanguageBuffer = null;
+                }
 
                 // replace the task being interrupted by a "reset" task:
                 State = State.Resetting;
@@ -226,7 +236,6 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                 InlineAdornmentProvider.RemoveAllAdornments(_window._textView);
 
                 // remove all the spans except our initial span from the projection buffer
-                _window._promptLineMapping.Clear();
                 UncommittedInput = null;
 
                 // Clear the projection and buffers last as this might trigger events that might access other state of the REPL window:
@@ -277,7 +286,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
             public void InsertCode(string text)
             {
-                if (_window._stdInputStart == null)
+                if (_window._stdInputStart != null)
                 {
                     return;
                 }
@@ -336,6 +345,15 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
             public void AddInput(string command)
             {
+                // If the language buffer is readonly then input can not be added. Return immediately.
+                // The language buffer gets marked as readonly in SubmitAsync method when input on the prompt 
+                // gets submitted. So it would be readonly when the user types #reset on the prompt. In that 
+                // case it is the right thing to bail out of this method.
+                if (_window._currentLanguageBuffer != null && _window._currentLanguageBuffer.IsReadOnly(0))
+                {
+                    return;
+                }
+
                 if (State == State.ExecutingInput || _window._currentLanguageBuffer == null)
                 {
                     AddLanguageBuffer();
@@ -347,8 +365,10 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                     _window.SetActiveCode(command);
                 }
 
-                FinishCurrentSubmissionInput();
+                // Add command to history before calling FinishCurrentSubmissionInput as it adds newline 
+                // to the end of the command.
                 _window._history.Add(_window._currentLanguageBuffer.CurrentSnapshot.GetExtent());
+                FinishCurrentSubmissionInput();
             }
 
             private void AppendUncommittedInput(string text)
@@ -423,7 +443,8 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                         new Span(span.Start, span.Length + text.Length),
                         PointTrackingMode.Negative,
                         PointTrackingMode.Positive),
-                    inputSpan.Kind);
+                    inputSpan.Kind,
+                    inputSpan.LineNumber);
 
                 ReplaceProjectionSpan(_window._projectionSpans.Count - 1, replSpan);
 
@@ -449,7 +470,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                     RestoreUncommittedInput();
 
                     // move to the end (it might have been in virtual space):
-                    _window.Caret.MoveTo(_window.GetLastLine().End);
+                    _window.Caret.MoveTo(GetLastLine(_window.TextBuffer.CurrentSnapshot).End);
                     _window.Caret.EnsureVisible();
 
                     State = State.WaitingForInput;
@@ -490,6 +511,9 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                     return Task.FromResult<object>(null);
                 }
 
+                // get command to save to history before calling FinishCurrentSubmissionInput
+                // as it adds newline at the end
+                var historySpan = _window._currentLanguageBuffer.CurrentSnapshot.GetExtent();
                 FinishCurrentSubmissionInput();
 
                 _window._history.UncommittedInput = null;
@@ -505,7 +529,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                 }
                 else
                 {
-                    _window._history.Add(trimmedSpan);
+                    _window._history.Add(historySpan);
                     State = State.ExecutingInput;
 
                     StartCursorTimer();
@@ -603,13 +627,15 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
             public void AppendNewOutputProjectionBuffer()
             {
+                var currentSnapshot = _window._outputBuffer.CurrentSnapshot;
                 var trackingSpan = new CustomTrackingSpan(
-                    _window._outputBuffer.CurrentSnapshot,
-                    new Span(_window._outputBuffer.CurrentSnapshot.Length, 0),
+                    currentSnapshot,
+                    new Span(currentSnapshot.Length, 0),
                     PointTrackingMode.Negative,
                     PointTrackingMode.Positive);
 
-                _currentOutputProjectionSpan = AppendProjectionSpan(new ReplSpan(trackingSpan, ReplSpanKind.Output));
+                var lastLineNumber = _window._textView == null ? 0 : _window.LastLineNumber;
+                _currentOutputProjectionSpan = AppendProjectionSpan(new ReplSpan(trackingSpan, ReplSpanKind.Output, lastLineNumber));
             }
 
             private int AppendProjectionSpan(ReplSpan span)
@@ -623,18 +649,22 @@ namespace Microsoft.VisualStudio.InteractiveWindow
             {
                 _window._projectionSpans.Insert(index, span);
                 _window._projectionBuffer.ReplaceSpans(index, 0, new[] { span.Span }, EditOptions.None, editTag: s_suppressPromptInjectionTag);
+                _window.CheckProjectionSpanLineNumbers();
             }
 
             public void ReplaceProjectionSpan(int spanToReplace, ReplSpan newSpan)
             {
+                Debug.Assert(_window._projectionSpans[spanToReplace].LineNumber == newSpan.LineNumber);
                 _window._projectionSpans[spanToReplace] = newSpan;
                 _window._projectionBuffer.ReplaceSpans(spanToReplace, 1, new[] { newSpan.Span }, EditOptions.None, editTag: s_suppressPromptInjectionTag);
+                _window.CheckProjectionSpanLineNumbers();
             }
 
             private void RemoveProjectionSpans(int index, int count)
             {
                 _window._projectionSpans.RemoveRange(index, count);
                 _window._projectionBuffer.ReplaceSpans(index, count, Array.Empty<object>(), EditOptions.None, s_suppressPromptInjectionTag);
+                _window.CheckProjectionSpanLineNumbers();
             }
 
             /// <summary>
@@ -650,48 +680,28 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                 // (the editor isn't happy about it and out line counting also gets simpler):
                 Debug.Assert(!_window._outputBuffer.CurrentSnapshot.EndsWith('\r'));
 
-                Debug.Assert(_window._projectionSpans[_currentOutputProjectionSpan].Kind == ReplSpanKind.Output);
+                var projectionSpans = _window._projectionSpans;
+                Debug.Assert(projectionSpans[_currentOutputProjectionSpan].Kind == ReplSpanKind.Output);
 
                 int lineBreakProjectionSpanIndex = _currentOutputProjectionSpan + 1;
 
                 // insert line break projection span if there is none and the output doesn't end with a line break:
-                bool hasLineBreakProjection = lineBreakProjectionSpanIndex < _window._projectionSpans.Count &&
-                                              ReferenceEquals(_window._projectionSpans[lineBreakProjectionSpanIndex], _window._lineBreakOutputSpan);
+                bool hasLineBreakProjection = false;
+                if (lineBreakProjectionSpanIndex < projectionSpans.Count)
+                {
+                    var oldSpan = projectionSpans[lineBreakProjectionSpanIndex];
+                    hasLineBreakProjection = oldSpan.Kind == ReplSpanKind.Output && object.Equals(oldSpan.Span, _window._lineBreakString);
+                }
 
-                bool endsWithLineBreak;
-                int newLineBreaks = CountOutputLineBreaks(output, out endsWithLineBreak);
+                Debug.Assert(output.Last().Last() != '\r');
+                bool endsWithLineBreak = output.Last().Last() == '\n';
 
                 bool insertLineBreak = !endsWithLineBreak && !hasLineBreakProjection;
                 bool removeLineBreak = endsWithLineBreak && hasLineBreakProjection;
 
-                int lineBreakProjectionSpansDelta = (insertLineBreak ? 1 : 0) - (removeLineBreak ? 1 : 0);
-                int lineCountDelta = newLineBreaks + lineBreakProjectionSpansDelta;
-
-                // Update line to projection span index mapping for all prompts following the output span.
-                if (_window._promptLineMapping.Count > 0 && (lineCountDelta != 0 || lineBreakProjectionSpansDelta != 0))
-                {
-                    int i = _window._promptLineMapping.Count - 1;
-                    while (i >= 0 && _window._promptLineMapping[i].Value > _currentOutputProjectionSpan)
-                    {
-                        _window._promptLineMapping[i] = new KeyValuePair<int, int>(
-                            _window._promptLineMapping[i].Key + lineCountDelta,
-                            _window._promptLineMapping[i].Value + lineBreakProjectionSpansDelta);
-
-                        i--;
-                    }
-                }
-
-                // do not use the mapping until projection span is updated below:
-                _window._promptLineMapping.IsInconsistentWithProjections = removeLineBreak || insertLineBreak;
-
                 // insert text to the subject buffer.
-                // WARNING: Prompt line mapping needs to be updated before this edit is applied
-                // since it might trigger events that use the mapping. 
                 int oldBufferLength = _window._outputBuffer.CurrentSnapshot.Length;
                 InsertOutput(output, oldBufferLength);
-
-                // mapping becomes consistent as soon as projection spans are updated:
-                _window._promptLineMapping.IsInconsistentWithProjections = false;
 
                 if (removeLineBreak)
                 {
@@ -699,11 +709,9 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                 }
                 else if (insertLineBreak)
                 {
-                    InsertProjectionSpan(lineBreakProjectionSpanIndex, _window._lineBreakOutputSpan);
+                    int lineNumber = _window.LastLineNumber;
+                    InsertProjectionSpan(lineBreakProjectionSpanIndex, new ReplSpan(_window._lineBreakString, ReplSpanKind.Output, lineNumber));
                 }
-
-                // projection spans and prompts are in sync now:
-                CheckPromptLineMappingConsistency(_currentOutputProjectionSpan);
 
                 // caret didn't move since last time we moved it to track output:
                 if (_outputTrackingCaretPosition == _window._textView.Caret.Position.BufferPosition)
@@ -711,47 +719,6 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                     _window._textView.Caret.EnsureVisible();
                     _outputTrackingCaretPosition = _window._textView.Caret.Position.BufferPosition;
                 }
-            }
-
-            /// <summary>
-            /// Counts the number of line breaks in the text appended to the given snapshot.
-            /// </summary>
-            private static int CountOutputLineBreaks(IEnumerable<string> output, out bool endsWithLineBreak)
-            {
-                int result = 0;
-
-                // note that we rely here upon the fact that previous snapshot doesn't end with '\r':
-                bool lastWasCR = false;
-
-                string lastStr = null;
-                foreach (string str in output)
-                {
-                    foreach (char c in str)
-                    {
-                        if (c == '\r')
-                        {
-                            result++;
-                            lastWasCR = true;
-                        }
-                        else if (c == '\n' && !lastWasCR)
-                        {
-                            // if the last characters was \r we don't count \n as a new line break
-
-                            result++;
-                            lastWasCR = false;
-                        }
-                        else
-                        {
-                            lastWasCR = false;
-                        }
-                    }
-
-                    lastStr = str;
-                }
-
-                Debug.Assert(lastStr.Last() != '\r');
-                endsWithLineBreak = lastStr.Last() == '\n';
-                return result;
             }
 
             private void InsertOutput(IEnumerable<string> output, int position)
@@ -770,22 +737,6 @@ namespace Microsoft.VisualStudio.InteractiveWindow
                 }
 
                 ApplyProtection(_window._outputBuffer, _outputProtection);
-            }
-
-            private void CheckPromptLineMappingConsistency(int minAffectedSpan)
-            {
-                if (_window._promptLineMapping.Count > 0)
-                {
-                    int i = _window._promptLineMapping.Count - 1;
-                    while (i >= 0 && _window._promptLineMapping[i].Value > minAffectedSpan)
-                    {
-                        Debug.Assert(
-                            _window._projectionSpans[_window._promptLineMapping[i].Value].Kind == ReplSpanKind.Prompt ||
-                            _window._projectionSpans[_window._promptLineMapping[i].Value].Kind == ReplSpanKind.StandardInputPrompt);
-
-                        i--;
-                    }
-                }
             }
 
             private void FinishExecute(Task<ExecutionResult> result)
@@ -869,10 +820,17 @@ namespace Microsoft.VisualStudio.InteractiveWindow
             /// <returns>The language or command buffer or null if the point doesn't belong to any.</returns>
             private ITextBuffer GetLanguageBuffer(SnapshotPoint point)
             {
-                int primaryPromptIndex;
-                ReplSpan projectionSpan = _window.GetClosestPrecedingInputSpan(point, out primaryPromptIndex);
-                if (projectionSpan == null || projectionSpan.Kind != ReplSpanKind.Language)
+                int promptIndex = _window.GetPromptIndexForPoint(point);
+                if (promptIndex < 0)
                 {
+                    return null;
+                }
+
+                // Grab the span following the prompt (either language or standard input).
+                ReplSpan projectionSpan = _window._projectionSpans[promptIndex + 1];
+                if (projectionSpan.Kind != ReplSpanKind.Language)
+                {
+                    Debug.Assert(projectionSpan.Kind == ReplSpanKind.StandardInput);
                     return null;
                 }
 
@@ -969,12 +927,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
             public void RemoveLastInputPrompt()
             {
-                var prompt = _window._projectionSpans[_window._projectionSpans.Count - SpansPerLineOfInput];
-                Debug.Assert(prompt.Kind.IsPrompt());
-                if (prompt.Kind == ReplSpanKind.Prompt || prompt.Kind == ReplSpanKind.StandardInputPrompt)
-                {
-                    _window._promptLineMapping.RemoveLast();
-                }
+                Debug.Assert(_window._projectionSpans[_window._projectionSpans.Count - SpansPerLineOfInput].Kind.IsPrompt());
 
                 // projection buffer update must be the last operation as it might trigger event that accesses prompt line mapping:
                 RemoveProjectionSpans(_window._projectionSpans.Count - SpansPerLineOfInput, SpansPerLineOfInput);
@@ -999,7 +952,7 @@ namespace Microsoft.VisualStudio.InteractiveWindow
 
                 // add the whole buffer to the projection buffer and set it up to expand to the right as text is appended
                 ReplSpan promptSpan = _window.CreatePrimaryPrompt();
-                ReplSpan languageSpan = new ReplSpan(_window.CreateLanguageTrackingSpan(new Span(0, 0)), ReplSpanKind.Language);
+                ReplSpan languageSpan = new ReplSpan(_window.CreateLanguageTrackingSpan(new Span(0, 0)), ReplSpanKind.Language, promptSpan.LineNumber);
 
                 // projection buffer update must be the last operation as it might trigger event that accesses prompt line mapping:
                 _window.AppendProjectionSpans(promptSpan, languageSpan);
