@@ -21,29 +21,31 @@ namespace Microsoft.CodeAnalysis.FindSymbols.Finders
             foreach (var location in symbol.DeclaringSyntaxReferences)
             {
                 var originalDocument = solution.GetDocument(location.SyntaxTree);
-
-                foreach (var linkedDocumentId in originalDocument.GetLinkedDocumentIds())
+                if (originalDocument != null)
                 {
-                    var linkedDocument = solution.GetDocument(linkedDocumentId);
-                    var linkedSyntaxRoot = await linkedDocument.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
-
-                    // Defend against constructed solutions with inconsistent linked documents
-                    if (!linkedSyntaxRoot.FullSpan.Contains(location.Span))
+                    foreach (var linkedDocumentId in originalDocument.GetLinkedDocumentIds())
                     {
-                        continue;
-                    }
+                        var linkedDocument = solution.GetDocument(linkedDocumentId);
+                        var linkedSyntaxRoot = await linkedDocument.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
 
-                    var linkedNode = linkedSyntaxRoot.FindNode(location.Span, getInnermostNodeForTie: true);
+                        // Defend against constructed solutions with inconsistent linked documents
+                        if (!linkedSyntaxRoot.FullSpan.Contains(location.Span))
+                        {
+                            continue;
+                        }
 
-                    var semanticModel = await linkedDocument.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
-                    var linkedSymbol = semanticModel.GetDeclaredSymbol(linkedNode, cancellationToken);
+                        var linkedNode = linkedSyntaxRoot.FindNode(location.Span, getInnermostNodeForTie: true);
 
-                    if (linkedSymbol != null &&
-                        linkedSymbol.Kind == symbol.Kind &&
-                        linkedSymbol.Name == symbol.Name &&
-                        !linkedSymbols.Contains(linkedSymbol))
-                    {
-                        linkedSymbols.Add(linkedSymbol);
+                        var semanticModel = await linkedDocument.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
+                        var linkedSymbol = semanticModel.GetDeclaredSymbol(linkedNode, cancellationToken);
+
+                        if (linkedSymbol != null &&
+                            linkedSymbol.Kind == symbol.Kind &&
+                            linkedSymbol.Name == symbol.Name &&
+                            !linkedSymbols.Contains(linkedSymbol))
+                        {
+                            linkedSymbols.Add(linkedSymbol);
+                        }
                     }
                 }
             }

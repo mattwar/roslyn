@@ -359,10 +359,11 @@ namespace Microsoft.CodeAnalysis
 
             // for now, look for code injectors in same assemblies that supplied analyzers
             var analyzerAssemblies = Arguments.ResolveAnalyzerReferences(this.AnalyzerLoader).OfType<AnalyzerFileReference>().Select(af => af.GetAssembly());
-            var injectors = CodeInjection.CodeInjectionProcessor.GetInjectors(analyzerAssemblies, compilation.Language);
+            var injectionProcessor = new CodeInjection.CodeInjectionProcessor();
+            var injectors = injectionProcessor.GetInjectors(analyzerAssemblies, compilation.Language);
             if (injectors.Length > 0)
             {
-                compilation = compilation.AddSyntaxTrees(CodeInjection.CodeInjectionProcessor.Generate(compilation, injectors, cancellationToken));
+                compilation = compilation.AddSyntaxTrees(injectionProcessor.Generate(compilation, injectors, cancellationToken));
             }
 
             cancellationToken.ThrowIfCancellationRequested();

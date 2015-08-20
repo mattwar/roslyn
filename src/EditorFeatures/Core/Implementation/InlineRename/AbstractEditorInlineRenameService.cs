@@ -176,11 +176,14 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.InlineRename
                     if (document.Project.IsSubmission)
                     {
                         var solution = document.Project.Solution;
-                        var projectIdOfLocation = solution.GetDocument(location.SourceTree).Project.Id;
-
-                        if (solution.Projects.Any(p => p.IsSubmission && p.ProjectReferences.Any(r => r.ProjectId == projectIdOfLocation)))
+                        var treeDocument = solution.GetDocument(location.SourceTree);
+                        if (treeDocument != null)
                         {
-                            return new FailureInlineRenameInfo(EditorFeaturesResources.YouCannotRenameElementsFromPrevSubmissions);
+                            var projectIdOfLocation = treeDocument.Project.Id;
+                            if (solution.Projects.Any(p => p.IsSubmission && p.ProjectReferences.Any(r => r.ProjectId == projectIdOfLocation)))
+                            {
+                                return new FailureInlineRenameInfo(EditorFeaturesResources.YouCannotRenameElementsFromPrevSubmissions);
+                            }
                         }
                     }
                     else

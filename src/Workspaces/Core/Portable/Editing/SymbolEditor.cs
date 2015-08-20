@@ -469,7 +469,9 @@ namespace Microsoft.CodeAnalysis.Editing
             var currentSymbol = await this.GetCurrentSymbolAsync(symbol, cancellationToken).ConfigureAwait(false);
             CheckSymbolArgument(currentSymbol, symbol);
 
-            var declsByDocId = this.GetDeclarations(currentSymbol).ToLookup(d => _currentSolution.GetDocument(d.SyntaxTree).Id);
+            var declsByDocId = this.GetDeclarations(currentSymbol)
+                .Where(d => _currentSolution.GetDocument(d.SyntaxTree) != null)
+                .ToLookup(d => _currentSolution.GetDocument(d.SyntaxTree).Id);
 
             var solutionEditor = new SolutionEditor(_currentSolution);
 

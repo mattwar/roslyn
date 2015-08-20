@@ -13,32 +13,26 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 {
     public abstract class CodeInjector
     {
-        public abstract void Initialize(InjectionContext context);
+        public abstract void Initialize(GlobalInjectionContext context);
     }
 
     public class CodeInjectionProcessor
     {
-        public static ImmutableArray<SyntaxTree> Generate(
+        private readonly GlobalInjectionContext _globalContext = new GlobalInjectionContext();
+
+        public ImmutableArray<SyntaxTree> Generate(
             Compilation compilation,
             IEnumerable<CodeInjector> injectors,
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            // factor this so it occurs only once per injector
-            var context = new InjectionContext();
-            foreach (CodeInjector injector in injectors)
-            {
-                context.Injector = injector;
-                injector.Initialize(context);
-            }
-
             var compilationContext = new CompilationInjectionContext();
-            foreach (var compilationAction in context.Actions)
+            foreach (var compilationAction in _globalContext.Actions)
             {
                 compilationAction(compilationContext);
             }
 
-            // for now just consider types in global namespace
-            var symbols = compilation.GlobalNamespace.GetTypeMembers();
+            var symbols = new List<ITypeSymbol>();
+            GatherTypeSymbols(compilation.GlobalNamespace, symbols);
 
             var addedTrees = new List<SyntaxTree>();
             foreach (var sym in symbols)
@@ -47,9 +41,9 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 
                 var symbolContext = new SymbolInjectionContext(compilation, sym, cancellationToken);
 
-                foreach (var action in context.Actions)
+                foreach (var action in compilationContext.Actions)
                 {
-                    action(compilationContext);
+                    action(symbolContext);
                 }
 
                 addedTrees.AddRange(symbolContext.AddedTrees);
@@ -58,11 +52,56 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             return addedTrees.ToImmutableArray();
         }
 
+        private static void GatherTypeSymbols(INamespaceOrTypeSymbol symbol, List<ITypeSymbol> types)
+        {
+            var ts = symbol as ITypeSymbol;
+            if (ts != null && !ts.IsImplicitlyDeclared)
+            {
+                types.Add(ts);
+
+                foreach (var nestedType in ts.GetTypeMembers())
+                {
+                    GatherTypeSymbols(nestedType, types);
+                }
+            }
+
+            var ns = symbol as INamespaceSymbol;
+            if (ns != null)
+            {
+                foreach (var ms in ns.GetMembers())
+                {
+                    GatherTypeSymbols(ms, types);
+                }
+            }
+        }
+
+        private ConditionalWeakTable<Type, CodeInjector> _injectors
+            = new ConditionalWeakTable<Type, CodeInjector>();
+
+        public CodeInjector GetInjector(Type injectorType)
+        {
+            CodeInjector injector;
+            if (!_injectors.TryGetValue(injectorType, out injector))
+            {
+                injector = _injectors.GetValue(injectorType, _ij => CreateInjector(_ij));
+            }
+
+            return injector;
+        }
+
+        private CodeInjector CreateInjector(Type injectorType)
+        {
+            var injector = (CodeInjector)Activator.CreateInstance(injectorType);
+            _globalContext.Injector = injector;
+            injector.Initialize(_globalContext);
+            return injector;
+        }
+
         private class AssemblyInjectors
         {
             public ImmutableDictionary<string, Lazy<ImmutableArray<CodeInjector>>> Injectors { get; }
 
-            public AssemblyInjectors(Assembly assembly)
+            public AssemblyInjectors(CodeInjectionProcessor processor, Assembly assembly)
             {
                 Injectors =
                     (from ti in assembly.DefinedTypes
@@ -73,26 +112,26 @@ namespace Microsoft.CodeAnalysis.CodeInjection
                      select new KeyValuePair<string, Lazy<ImmutableArray<CodeInjector>>>(
                          g.Key,
                          new Lazy<ImmutableArray<CodeInjector>>(
-                             () => g.Select(type => (CodeInjector)Activator.CreateInstance(type)).ToImmutableArray(), isThreadSafe: true)))
+                             () => g.Select(type => processor.GetInjector(type)).ToImmutableArray(), isThreadSafe: true)))
                     .ToImmutableDictionary();
             }
         }
 
-        private static ConditionalWeakTable<Assembly, AssemblyInjectors> s_assemblyInjectors
+        private ConditionalWeakTable<Assembly, AssemblyInjectors> assemblyInjectors
             = new ConditionalWeakTable<Assembly, AssemblyInjectors>();
 
-        private static AssemblyInjectors GetInjectors(Assembly assembly)
+        private AssemblyInjectors GetInjectors(Assembly assembly)
         {
             AssemblyInjectors injectors;
-            if (!s_assemblyInjectors.TryGetValue(assembly, out injectors))
+            if (!assemblyInjectors.TryGetValue(assembly, out injectors))
             {
-                injectors = s_assemblyInjectors.GetValue(assembly, _assembly => new AssemblyInjectors(_assembly));
+                injectors = assemblyInjectors.GetValue(assembly, _assembly => new AssemblyInjectors(this, _assembly));
             }
 
             return injectors;
         }
 
-        private static ImmutableArray<CodeInjector> GetInjectors(Assembly assembly, string language)
+        private ImmutableArray<CodeInjector> GetInjectors(Assembly assembly, string language)
         {
             var ai = GetInjectors(assembly);
 
@@ -105,7 +144,7 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             return ImmutableArray<CodeInjector>.Empty;
         }
 
-        public static ImmutableArray<CodeInjector> GetInjectors(IEnumerable<Assembly> injectionAssemblies, string language)
+        public ImmutableArray<CodeInjector> GetInjectors(IEnumerable<Assembly> injectionAssemblies, string language)
         {
             List<CodeInjector> list = null;
 
@@ -133,14 +172,14 @@ namespace Microsoft.CodeAnalysis.CodeInjection
         }
     }
 
-    public class InjectionContext
+    public class GlobalInjectionContext
     {
         private readonly List<Action<CompilationInjectionContext>> _actions
             = new List<Action<CompilationInjectionContext>>();
 
         internal CodeInjector Injector { get; set; }
 
-        internal InjectionContext()
+        public GlobalInjectionContext()
         {
         }
 
@@ -207,7 +246,7 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 
         public void AddCompilationUnit(SyntaxNode root)
         {
-            string path = Symbol.Name + "_" + this.Injector.GetType().Name;
+            string path = "$" + Symbol.Name + "_" + this.Injector.GetType().Name;
             root = root.NormalizeWhitespace();
 
             var symbolDeclTree = this.Symbol.DeclaringSyntaxReferences.First().SyntaxTree;

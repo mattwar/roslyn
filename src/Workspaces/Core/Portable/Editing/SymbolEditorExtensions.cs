@@ -37,13 +37,16 @@ namespace Microsoft.CodeAnalysis.Editing
             foreach (var decl in currentDecls)
             {
                 var doc = editor.OriginalSolution.GetDocument(decl.SyntaxTree);
-                var model = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
-                var gen = SyntaxGenerator.GetGenerator(doc);
-
-                var typeRef = gen.GetBaseAndInterfaceTypes(decl).FirstOrDefault(r => model.GetTypeInfo(r, cancellationToken).Type.Equals(baseOrInterfaceType));
-                if (typeRef != null)
+                if (doc != null)
                 {
-                    return typeRef;
+                    var model = await doc.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
+                    var gen = SyntaxGenerator.GetGenerator(doc);
+
+                    var typeRef = gen.GetBaseAndInterfaceTypes(decl).FirstOrDefault(r => model.GetTypeInfo(r, cancellationToken).Type.Equals(baseOrInterfaceType));
+                    if (typeRef != null)
+                    {
+                        return typeRef;
+                    }
                 }
             }
 

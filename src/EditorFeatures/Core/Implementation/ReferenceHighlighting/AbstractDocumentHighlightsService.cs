@@ -156,9 +156,13 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.ReferenceHighlighting
                 {
                     foreach (var location in reference.Definition.Locations)
                     {
-                        if (location.IsInSource && documentToSearch.Contains(solution.GetDocument(location.SourceTree)))
+                        if (location.IsInSource)
                         {
-                            await AddLocationSpan(location, solution, spanSet, tagMap, HighlightSpanKind.Definition, cancellationToken).ConfigureAwait(false);
+                            var locDoc = solution.GetDocument(location.SourceTree);
+                            if (locDoc != null && documentToSearch.Contains(locDoc))
+                            {
+                                await AddLocationSpan(location, solution, spanSet, tagMap, HighlightSpanKind.Definition, cancellationToken).ConfigureAwait(false);
+                            }
                         }
                     }
                 }
@@ -232,15 +236,22 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.ReferenceHighlighting
             var tree = location.SourceTree;
 
             var document = solution.GetDocument(tree);
-            var syntaxFacts = document.Project.LanguageServices.GetService<ISyntaxFactsService>();
+            if (document != null)
+            {
+                var syntaxFacts = document.Project.LanguageServices.GetService<ISyntaxFactsService>();
 
-            // Specify findInsideTrivia: true to ensure that we search within XML doc comments.
-            var root = await tree.GetRootAsync(cancellationToken).ConfigureAwait(false);
-            var token = root.FindToken(location.SourceSpan.Start, findInsideTrivia: true);
+                // Specify findInsideTrivia: true to ensure that we search within XML doc comments.
+                var root = await tree.GetRootAsync(cancellationToken).ConfigureAwait(false);
+                var token = root.FindToken(location.SourceSpan.Start, findInsideTrivia: true);
 
-            return syntaxFacts.IsGenericName(token.Parent) || syntaxFacts.IsIndexerMemberCRef(token.Parent)
-                ? ValueTuple.Create(document, token.Span)
-                : ValueTuple.Create(document, location.SourceSpan);
+                return syntaxFacts.IsGenericName(token.Parent) || syntaxFacts.IsIndexerMemberCRef(token.Parent)
+                    ? ValueTuple.Create(document, token.Span)
+                    : ValueTuple.Create(document, location.SourceSpan);
+            }
+            else
+            {
+                return null;
+            }
         }
     }
 }

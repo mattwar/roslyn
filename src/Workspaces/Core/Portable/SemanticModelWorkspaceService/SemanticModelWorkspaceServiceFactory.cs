@@ -485,9 +485,10 @@ namespace Microsoft.CodeAnalysis.SemanticModelWorkspaceService
                         }
 
                         var documentId = newProject.GetDocumentId(newTree);
-                        Contract.Requires(documentId != null);
-
-                        map = map.SetItem(documentId, newTree);
+                        if (documentId != null)
+                        {
+                            map = map.SetItem(documentId, newTree);
+                        }
                     }
 
                     return map;

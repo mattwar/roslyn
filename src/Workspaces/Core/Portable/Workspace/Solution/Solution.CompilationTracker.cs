@@ -629,12 +629,19 @@ namespace Microsoft.CodeAnalysis
                 }
             }
 
+            private static CodeInjectionProcessor s_injectorProcessor = new CodeInjectionProcessor();
+
             private Compilation AddInjectedCode(Compilation compilation, CancellationToken cancellationToken)
             {
                 var injectors = GetCodeInjectors();
 
-                var trees = CodeInjectionProcessor.Generate(compilation, injectors, cancellationToken);
+                var existingGeneratedTrees = compilation.SyntaxTrees.Where(st => st.FilePath.StartsWith("$")).ToList();
+                if (existingGeneratedTrees.Count > 0)
+                {
+                    compilation = compilation.RemoveSyntaxTrees(existingGeneratedTrees);
+                }
 
+                var trees = s_injectorProcessor.Generate(compilation, injectors, cancellationToken);
                 if (trees.Length > 0)
                 {
                     return compilation.AddSyntaxTrees(trees);
@@ -665,7 +672,7 @@ namespace Microsoft.CodeAnalysis
                 if (!s_projectInjectors.TryGetValue(this.ProjectState.ProjectInfo, out pin))
                 {
                     var assemblies = this.ProjectState.ProjectInfo.AnalyzerReferences.OfType<AnalyzerFileReference>().Select(af => af.GetAssembly());
-                    var injectors = CodeInjectionProcessor.GetInjectors(assemblies, this.ProjectState.LanguageServices.Language);
+                    var injectors = s_injectorProcessor.GetInjectors(assemblies, this.ProjectState.LanguageServices.Language);
                     pin = s_projectInjectors.GetValue(this.ProjectState.ProjectInfo, _info => new ProjectInjectors(injectors));
                 }
 

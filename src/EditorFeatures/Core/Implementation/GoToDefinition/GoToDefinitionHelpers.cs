@@ -80,9 +80,10 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.GoToDefinition
                 var workspace = project.Solution.Workspace;
                 var navigationService = workspace.Services.GetService<IDocumentNavigationService>();
 
-                if (navigationService.CanNavigateToSpan(workspace, solution.GetDocument(firstItem.SourceTree).Id, firstItem.SourceSpan))
+                var firstDoc = solution.GetDocument(firstItem.SourceTree);
+                if (firstDoc != null && navigationService.CanNavigateToSpan(workspace, firstDoc.Id, firstItem.SourceSpan))
                 {
-                    return navigationService.TryNavigateToSpan(workspace, solution.GetDocument(firstItem.SourceTree).Id, firstItem.SourceSpan, usePreviewTab: true);
+                    return navigationService.TryNavigateToSpan(workspace, firstDoc.Id, firstItem.SourceSpan, usePreviewTab: true);
                 }
                 else
                 {
