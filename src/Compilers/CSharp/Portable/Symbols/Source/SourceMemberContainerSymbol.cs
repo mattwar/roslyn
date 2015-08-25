@@ -307,13 +307,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             var partCount = declaration.Declarations.Length;
             var missingPartial = false;
 
+            int partialCount = 0;
             for (var i = 0; i < partCount; i++)
             {
                 var mods = declaration.Declarations[i].Modifiers;
 
-                if (partCount > 1 && (mods & DeclarationModifiers.Partial) == 0)
+                if ((mods & DeclarationModifiers.Partial) != 0)
                 {
-                    missingPartial = true;
+                    partialCount += 1;
                 }
 
                 if (result == DeclarationModifiers.Unset)
@@ -323,6 +324,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 }
 
                 result |= mods;
+            }
+
+            // PROTOTYPE: Partial-Partials - allow for one declaration without partial modifier
+            if (partCount > 1 && partialCount < partCount - 1)
+            {
+                missingPartial = true;
             }
 
             result = ModifierUtils.CheckModifiers(result, allowedModifiers, self.Locations[0], diagnostics, out modifierErrors);
