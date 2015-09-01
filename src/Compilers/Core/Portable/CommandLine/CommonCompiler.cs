@@ -455,8 +455,9 @@ namespace Microsoft.CodeAnalysis
                             (win32ResourceStreamOpt != null) ? new Compilation.SimpleEmitStreamProvider(win32ResourceStreamOpt) : null,
                             Arguments.ManifestResources,
                             emitOptions,
-                            getAnalyzerDiagnostics,
-                            cancellationToken);
+                            debugEntryPoint: null,
+                            getHostDiagnostics: getAnalyzerDiagnostics,
+                            cancellationToken: cancellationToken);
 
                         if (emitResult.Success && touchedFilesLogger != null)
                         {
