@@ -238,6 +238,58 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
         }
 
+#if !NOTSUPER
+        /// <summary>
+        /// The symbol that this symbol supersedes.
+        /// </summary>
+        public virtual Symbol Supersedes
+        {
+            get { return null; }
+        }
+
+        /// <summary>
+        /// The symbol that this symbol is superseded by.
+        /// </summary>
+        public virtual Symbol SupersededBy
+        {
+            get { return null; }
+        }
+
+        public virtual bool IsSupersede
+        {
+            get { return false; }
+        }
+
+        /// <summary>
+        /// True if this symbol is superseded (transitively) by the specified symbol
+        /// </summary>
+        public bool IsSupersededBy(Symbol symbol)
+        {
+            for (var sup = this.SupersededBy; sup != null; sup = sup.SupersededBy)
+            {
+                if (sup == symbol)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal int GetSupersededCount()
+        {
+            var symbol = this;
+
+            int n = 0;
+            while (symbol.Supersedes != null)
+            {
+                n++;
+                symbol = symbol.Supersedes;
+            }
+
+            return n;
+        }
+#endif
         /// <summary>
         /// <para>
         /// Get a source location key for sorting. For performance, it's important that this

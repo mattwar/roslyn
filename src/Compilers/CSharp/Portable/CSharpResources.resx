@@ -4641,4 +4641,7 @@ To remove the warning, you can use /reference instead (set the Embed Interop Typ
   <data name="ERR_DebugEntryPointNotSourceMethodDefinition" xml:space="preserve">
     <value>Debug entry point must be a definition of a method declared in the current compilation.</value>
   </data>
+  <data name="ERR_SupersededMethodNotDefined" xml:space="preserve">
+    <value>The superseded method is not defined.</value>
+  </data>
 </root>

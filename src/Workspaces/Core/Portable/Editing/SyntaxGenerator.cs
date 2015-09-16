@@ -1319,6 +1319,20 @@ namespace Microsoft.CodeAnalysis.Editing
         /// </summary>
         public abstract SyntaxNode WhileStatement(SyntaxNode condition, IEnumerable<SyntaxNode> statements);
 
+        /// <summary>
+        /// Creates a statement that raises an event. 
+        /// This can only be used within the type that declares the event, and does not work with custom events.
+        /// </summary>
+        public abstract SyntaxNode RaiseEventStatement(SyntaxNode eventExpression, IEnumerable<SyntaxNode> eventArguments);
+
+        /// <summary>
+        /// Creates a statement that raises an event. 
+        /// This can only be used within the type that declares the event, and does not work with custom events.
+        /// </summary>
+        public SyntaxNode RaiseEventStatement(SyntaxNode eventExpression, params SyntaxNode[] eventArguments)
+        {
+            return RaiseEventStatement(eventExpression, (IEnumerable<SyntaxNode>)eventArguments);
+        }
         #endregion
 
         #region Expressions

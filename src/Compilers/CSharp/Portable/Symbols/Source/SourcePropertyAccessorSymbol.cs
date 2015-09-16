@@ -93,6 +93,24 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 diagnostics);
         }
 
+#if !NOTSUPER
+        public override string MetadataName
+        {
+            get
+            {
+                var assoc = this.AssociatedSymbol;
+                if (assoc != null && assoc.SupersededBy != null)
+                {
+                    return base.MetadataName + assoc.GetSupersededCount();
+                }
+                else
+                {
+                    return base.MetadataName;
+                }
+            }
+        }
+#endif
+
         internal override bool IsExpressionBodied
         {
             get

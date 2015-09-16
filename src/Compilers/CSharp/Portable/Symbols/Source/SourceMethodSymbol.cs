@@ -42,13 +42,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             private const int DeclarationModifiersOffset = 5;
 
             private const int MethodKindMask = 0x1F;
-            private const int DeclarationModifiersMask = 0x1FFFFF;
+            private const int DeclarationModifiersMask = 0x3FFFFF;
 
-            private const int ReturnsVoidBit = 1 << 26;
-            private const int IsExtensionMethodBit = 1 << 27;
-            private const int IsMetadataVirtualIgnoringInterfaceChangesBit = 1 << 28;
-            private const int IsMetadataVirtualBit = 1 << 29;
-            private const int IsMetadataVirtualLockedBit = 1 << 30;
+            private const int ReturnsVoidBit = 1 << 27;
+            private const int IsExtensionMethodBit = 1 << 28;
+            private const int IsMetadataVirtualIgnoringInterfaceChangesBit = 1 << 29;
+            private const int IsMetadataVirtualBit = 1 << 30;
+            private const int IsMetadataVirtualLockedBit = 1 << 31;
 
             private int _flags;
 
@@ -513,6 +513,15 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
+#if !NOTSUPER
+        public override bool IsSupersede
+        {
+            get
+            {
+                return (this.DeclarationModifiers & DeclarationModifiers.Supersede) != 0;
+            }
+        }
+#endif
         internal sealed override Cci.CallingConvention CallingConvention
         {
             get
@@ -533,9 +542,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        #endregion
+#endregion
 
-        #region Syntax
+#region Syntax
 
         internal SyntaxNode BodySyntax
         {
@@ -594,7 +603,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return SourceDocumentationCommentUtils.GetAndCacheDocumentationComment(this, expandIncludes, ref lazyDocComment);
         }
 
-        #endregion
+#endregion
 
         public override ImmutableArray<CustomModifier> ReturnTypeCustomModifiers
         {
@@ -747,7 +756,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             state.SpinWaitComplete(allParts, cancellationToken);
         }
 
-        #region Attributes
+#region Attributes
 
         /// <summary>
         /// Symbol to copy bound attributes from, or null if the attributes are not shared among multiple source method symbols.
@@ -1489,7 +1498,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        #endregion
+#endregion
 
         internal override void AddSynthesizedAttributes(ModuleCompilationState compilationState, ref ArrayBuilder<SynthesizedAttributeData> attributes)
         {

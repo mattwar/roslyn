@@ -374,6 +374,32 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return new SourcePropertySymbol(containingType, bodyBinder, syntax, DefaultIndexerName, location, diagnostics);
         }
 
+#if !NOTSUPER
+        private Symbol _supersedes;
+        private Symbol _supersededBy;
+
+        public override Symbol Supersedes
+        {
+            get { return _supersedes; }
+        }
+
+        public override Symbol SupersededBy
+        {
+            get { return _supersededBy; }
+        }
+
+        public override bool IsSupersede
+        {
+            get { return (_modifiers & DeclarationModifiers.Supersede) != 0; }
+        }
+
+        internal static void InitializeSupersededProperties(SourcePropertySymbol supersededProperty, SourcePropertySymbol supersedingProperty)
+        {
+            supersededProperty._supersededBy = supersedingProperty;
+            supersedingProperty._supersedes = supersededProperty;
+        }
+#endif
+
         public override TypeSymbol Type
         {
             get
@@ -429,9 +455,21 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             get
             {
+#if !NOTSUPER
+                var name = _sourceName.Replace(" ", "");
+                if (_supersededBy != null)
+                {
+                    return name + this.GetSupersededCount();
+                }
+                else
+                {
+                    return name;
+                }
+#else
                 // Explicit implementation names may have spaces if the interface
                 // is generic (between the type arguments).
                 return _sourceName.Replace(" ", "");
+#endif
             }
         }
 
@@ -675,7 +713,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                         DeclarationModifiers.Sealed |
                         DeclarationModifiers.Abstract |
                         DeclarationModifiers.Virtual |
-                        DeclarationModifiers.Override;
+                        DeclarationModifiers.Override |
+                        DeclarationModifiers.Supersede;
 
                     if (!isIndexer)
                     {

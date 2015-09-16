@@ -14,6 +14,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.CodeGeneration
 
 #Region "Expressions and Statements"
 
+        Public Overrides Function RaiseEventStatement(eventExpression As SyntaxNode, eventArguments As IEnumerable(Of SyntaxNode)) As SyntaxNode
+            Return SyntaxFactory.RaiseEventStatement(
+                name:=DirectCast(eventExpression, IdentifierNameSyntax),
+                argumentList:=AsArgumentList(eventArguments))
+        End Function
+
         Public Overrides Function AwaitExpression(expression As SyntaxNode) As SyntaxNode
             Return SyntaxFactory.AwaitExpression(DirectCast(expression, ExpressionSyntax))
         End Function

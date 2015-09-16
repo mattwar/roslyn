@@ -12,7 +12,8 @@ namespace Microsoft.CodeAnalysis.Collections
     {
         private readonly ObjectPool<PooledDictionary<K, V>> _pool;
 
-        private PooledDictionary(ObjectPool<PooledDictionary<K, V>> pool)
+        private PooledDictionary(ObjectPool<PooledDictionary<K, V>> pool, IEqualityComparer<K> keyComparer)
+            : base(keyComparer)
         {
             _pool = pool;
         }
@@ -24,13 +25,13 @@ namespace Microsoft.CodeAnalysis.Collections
         }
 
         // global pool
-        private static readonly ObjectPool<PooledDictionary<K, V>> s_poolInstance = CreatePool();
+        private static readonly ObjectPool<PooledDictionary<K, V>> s_poolInstance = CreatePool(128);
 
         // if someone needs to create a pool;
-        public static ObjectPool<PooledDictionary<K, V>> CreatePool()
+        public static ObjectPool<PooledDictionary<K, V>> CreatePool(int size, IEqualityComparer<K> keyComparer = null)
         {
             ObjectPool<PooledDictionary<K, V>> pool = null;
-            pool = new ObjectPool<PooledDictionary<K, V>>(() => new PooledDictionary<K, V>(pool), 128);
+            pool = new ObjectPool<PooledDictionary<K, V>>(() => new PooledDictionary<K, V>(pool, keyComparer), size);
             return pool;
         }
 

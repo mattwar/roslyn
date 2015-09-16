@@ -111,6 +111,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     return SyntaxFacts.GetText(SyntaxKind.OverrideKeyword);
                 case DeclarationModifiers.Async:
                     return SyntaxFacts.GetText(SyntaxKind.AsyncKeyword);
+                case DeclarationModifiers.Supersede:
+                    return SyntaxFacts.GetText(SyntaxKind.SupersedeKeyword);
                 default:
                     throw ExceptionUtilities.UnexpectedValue(modifier);
             }
@@ -207,6 +209,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                         }
 
                         goto default;
+
+                    case SyntaxKind.SupersedeKeyword:
+                        one = DeclarationModifiers.Supersede;
+                        break;
 
                     default:
                         throw ExceptionUtilities.UnexpectedValue(modifier.ContextualKind());

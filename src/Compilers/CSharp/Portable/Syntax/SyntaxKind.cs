@@ -192,6 +192,8 @@ namespace Microsoft.CodeAnalysis.CSharp
         AsyncKeyword = 8435,
         AwaitKeyword = 8436,
         WhenKeyword = 8437,
+        SupersedeKeyword = 8438,
+        SupersededKeyword = 8439,
 
         // additional preprocessor keywords
         ElifKeyword = 8467,

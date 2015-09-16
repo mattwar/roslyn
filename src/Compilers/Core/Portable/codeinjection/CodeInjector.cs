@@ -25,7 +25,7 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             IEnumerable<CodeInjector> injectors,
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            var compilationContext = new CompilationInjectionContext();
+            var compilationContext = new CompilationInjectionContext(compilation);
             foreach (var compilationAction in _globalContext.Actions)
             {
                 compilationAction(compilationContext);
@@ -206,6 +206,11 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 
         private readonly List<Action<SymbolInjectionContext>> _actions
             = new List<Action<SymbolInjectionContext>>();
+
+        internal CompilationInjectionContext(Compilation compilation)
+        {
+            this.Compilation = compilation;
+        }
 
         public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
         {

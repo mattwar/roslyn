@@ -853,8 +853,29 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
 
             HashSet<DiagnosticInfo> useSiteDiagnostics = null;
-            this.LookupSymbolsWithFallback(lookupResult, node.Identifier.ValueText, arity: arity, useSiteDiagnostics: ref useSiteDiagnostics, options: options);
-            diagnostics.Add(node, useSiteDiagnostics);
+
+#if !NOTSUPER
+            if (SyntaxFacts.GetContextualKeywordKind(node.Identifier.Text) == SyntaxKind.SupersededKeyword)
+            {
+                var containingMember = this.ContainingMember();
+                if (containingMember != null && containingMember.IsAccessor())
+                {
+                    containingMember = ((MethodSymbol)containingMember).AssociatedSymbol;
+                }
+
+                var superseded = containingMember?.Supersedes;
+                if (superseded != null)
+                {
+                    lookupResult.SetFrom(LookupResult.Good(superseded));
+                }
+            }
+#endif
+
+            if (lookupResult.Kind == LookupResultKind.Empty)
+            {
+                this.LookupSymbolsWithFallback(lookupResult, node.Identifier.ValueText, arity: arity, useSiteDiagnostics: ref useSiteDiagnostics, options: options);
+                diagnostics.Add(node, useSiteDiagnostics);
+            }
 
             if (lookupResult.Kind != LookupResultKind.Empty)
             {
@@ -5440,6 +5461,21 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             Symbol other = null; // different member type from 'methodOrPropertyGroup'
 
+#if !NOTSUPER
+            // Supersedes: remove superseded members from the lookup result
+            if (result.Symbols.Count > 1 && result.Symbols.Any(m => m.SupersededBy != null))
+            {
+                for (int i = result.Symbols.Count - 1; i >= 0; i--)
+                {
+                    var symbol = result.Symbols[i];
+                    if (symbol.SupersededBy != null && result.Symbols.Contains(symbol.SupersededBy))
+                    {
+                        result.Symbols.RemoveAt(i);
+                    }
+                }
+            }
+#endif
+
             // Populate 'methodOrPropertyGroup' with a set of methods if any,
             // or a set of properties if properties but no methods. If there are
             // other member types, 'other' will be set to one of those members.
@@ -6213,6 +6249,14 @@ namespace Microsoft.CodeAnalysis.CSharp
                     methods = ImmutableArray.Create(method);
                 }
             }
+
+#if !NOTSUPER
+            // Supersedes: never bind to superseded method (unless its the only method in the group)
+            if (methods.Length > 1 && methods.Any(m => m.SupersededBy != null))
+            {
+                methods = methods.Where(m => m.SupersededBy == null || !methods.Contains(m.SupersededBy)).ToImmutableArray();
+            }
+#endif
 
             ImmutableArray<Diagnostic> sealedDiagnostics = ImmutableArray<Diagnostic>.Empty;
             if (node.LookupError != null)

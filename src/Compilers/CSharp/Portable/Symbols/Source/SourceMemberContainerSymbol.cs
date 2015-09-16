@@ -29,18 +29,18 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // |  |d|yy|xxxxxxxxxxxxxxxxxxxxx|wwwwww|
             //
             // w = special type.  6 bits.
-            // x = modifiers.  21 bits.
+            // x = modifiers.  22 bits.
             // y = IsManagedType.  2 bits.
             // d = FieldDefinitionsNoted. 1 bit
             private const int SpecialTypeOffset = 0;
             private const int DeclarationModifiersOffset = 6;
-            private const int IsManagedTypeOffset = 26;
+            private const int IsManagedTypeOffset = 27;
 
             private const int SpecialTypeMask = 0x3F;
-            private const int DeclarationModifiersMask = 0x1FFFFF;
+            private const int DeclarationModifiersMask = 0x3FFFFF;
             private const int IsManagedTypeMask = 0x3;
 
-            private const int FieldDefinitionsNotedBit = 1 << 28;
+            private const int FieldDefinitionsNotedBit = 1 << 29;
 
             private int _flags;
 
@@ -1434,7 +1434,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
                     if ((object)lastSym != null)
                     {
-                        if (symbol.Kind != SymbolKind.Method || lastSym.Kind != SymbolKind.Method)
+                        var isSuperseded = lastSym.IsSupersededBy(symbol) || symbol.IsSupersededBy(lastSym);
+
+                        if ((symbol.Kind != SymbolKind.Method || lastSym.Kind != SymbolKind.Method) && !isSuperseded)
                         {
                             if (symbol.Kind != SymbolKind.Field || !symbol.IsImplicitlyDeclared || !(symbol is SynthesizedBackingFieldSymbol)) // don't report duplicate errors on backing fields
                             {
@@ -1533,6 +1535,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             // Partial methods are allowed to collide by signature.
             if (method1.IsPartial && method2.IsPartial)
+            {
+                return;
+            }
+
+            // methods that supersede each other are allowed to have the same signature
+            if (method1.IsSupersededBy(method2) || method2.IsSupersededBy(method1))
             {
                 return;
             }
@@ -2333,62 +2341,102 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return this.DeclaringCompilation.GetBinder(syntaxNode);
         }
 
+        private static ObjectPool<PooledDictionary<Symbol, Symbol>> s_symbolsBySignaturePool 
+            = PooledDictionary<Symbol, Symbol>.CreatePool(10, MemberSignatureComparer.DuplicateSourceComparer);
+
         private static void MergePartialMethods(
             Dictionary<string, ImmutableArray<Symbol>> membersByName,
             DiagnosticBag diagnostics)
         {
             //key and value will be the same object
-            var methodsBySignature = new Dictionary<MethodSymbol, SourceMethodSymbol>(MemberSignatureComparer.DuplicateSourceComparer);
-
-            foreach (var name in membersByName.Keys.ToArray())
+            var symbolsBySignature = s_symbolsBySignaturePool.Allocate();
+            try
             {
-                methodsBySignature.Clear();
-                foreach (var symbol in membersByName[name])
+                foreach (var name in membersByName.Keys.ToArray())
                 {
-                    var method = symbol as SourceMethodSymbol;
-                    if ((object)method == null || !method.IsPartial)
+                    symbolsBySignature.Clear();
+
+                    foreach (var symbol in membersByName[name])
                     {
-                        continue; // only partial methods need to be merged
+                        var method = symbol as SourceMemberMethodSymbol;
+                        var prop = symbol as SourcePropertySymbol;
+
+                        if ((object)method != null)
+                        {
+                            Symbol prev;
+                            symbolsBySignature.TryGetValue(symbol, out prev);
+
+                            if ((object)prev != null)
+                            {
+                                var prevPart = (SourceMemberMethodSymbol)prev;
+                                var methodPart = method;
+
+                                if (method.IsPartial)
+                                {
+                                    bool hasImplementation = (object)prevPart.OtherPartOfPartial != null || prevPart.IsPartialImplementation;
+                                    bool hasDefinition = (object)prevPart.OtherPartOfPartial != null || prevPart.IsPartialDefinition;
+
+                                    if (hasImplementation && methodPart.IsPartialImplementation)
+                                    {
+                                        // A partial method may not have multiple implementing declarations
+                                        diagnostics.Add(ErrorCode.ERR_PartialMethodOnlyOneActual, methodPart.Locations[0]);
+                                    }
+                                    else if (hasDefinition && methodPart.IsPartialDefinition)
+                                    {
+                                        // A partial method may not have multiple defining declarations
+                                        diagnostics.Add(ErrorCode.ERR_PartialMethodOnlyOneLatent, methodPart.Locations[0]);
+                                    }
+                                    else
+                                    {
+                                        membersByName[name] = FixPartialMember(membersByName[name], prevPart, methodPart);
+                                    }
+                                }
+                                else if (method.IsSupersede)
+                                {
+                                    // superseding method supersedes the most recent (lexically) previous matching method
+                                    SourceMemberMethodSymbol.InitializeSupersededMethods(prevPart, method);
+                                }
+                            }
+
+                            symbolsBySignature[symbol] = symbol;
+                        }
+                        else if ((object)prop != null)
+                        {
+                            Symbol prev;
+                            symbolsBySignature.TryGetValue(symbol, out prev);
+
+                            if (prop.IsSupersede && ((object)prev != null))
+                            {
+                                // superseding property supersedes the most recent (lexically) previous matching property
+                                SourcePropertySymbol.InitializeSupersededProperties((SourcePropertySymbol)prev, prop);
+                            }
+
+                            symbolsBySignature[symbol] = symbol;
+                        }
                     }
 
-                    SourceMethodSymbol prev;
-                    if (methodsBySignature.TryGetValue(method, out prev))
+                    foreach (Symbol symbol in symbolsBySignature.Values)
                     {
-                        var prevPart = (SourceMemberMethodSymbol)prev;
-                        var methodPart = (SourceMemberMethodSymbol)method;
+                        var method = symbol as SourceMemberMethodSymbol;
 
-                        bool hasImplementation = (object)prevPart.OtherPartOfPartial != null || prevPart.IsPartialImplementation;
-                        bool hasDefinition = (object)prevPart.OtherPartOfPartial != null || prevPart.IsPartialDefinition;
-
-                        if (hasImplementation && methodPart.IsPartialImplementation)
+                        if (method != null)
                         {
-                            // A partial method may not have multiple implementing declarations
-                            diagnostics.Add(ErrorCode.ERR_PartialMethodOnlyOneActual, methodPart.Locations[0]);
+                            if (method.IsPartialImplementation && (object)method.OtherPartOfPartial == null)
+                            {
+                                // partial implementations not paired with a definition
+                                diagnostics.Add(ErrorCode.ERR_PartialMethodMustHaveLatent, method.Locations[0], method);
+                            }
+                            else if (method.IsSupersede && method.Supersedes == null)
+                            {
+                                diagnostics.Add(ErrorCode.ERR_SupersededMethodNotDefined, method.Locations[0], method);
+                            }
                         }
-                        else if (hasDefinition && methodPart.IsPartialDefinition)
-                        {
-                            // A partial method may not have multiple defining declarations
-                            diagnostics.Add(ErrorCode.ERR_PartialMethodOnlyOneLatent, methodPart.Locations[0]);
-                        }
-                        else
-                        {
-                            membersByName[name] = FixPartialMember(membersByName[name], prevPart, methodPart);
-                        }
-                    }
-                    else
-                    {
-                        methodsBySignature.Add(method, method);
                     }
                 }
-
-                foreach (SourceMemberMethodSymbol method in methodsBySignature.Values)
-                {
-                    // partial implementations not paired with a definition
-                    if (method.IsPartialImplementation && (object)method.OtherPartOfPartial == null)
-                    {
-                        diagnostics.Add(ErrorCode.ERR_PartialMethodMustHaveLatent, method.Locations[0], method);
-                    }
-                }
+            }
+            finally
+            {
+                symbolsBySignature.Free();
             }
         }
 
@@ -3133,9 +3181,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        #endregion
+#endregion
 
-        #region Extension Methods
+#region Extension Methods
 
         internal bool ContainsExtensionMethods
         {
@@ -3173,7 +3221,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        #endregion
+#endregion
 
         public sealed override NamedTypeSymbol ConstructedFrom
         {

@@ -274,6 +274,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Classification
                 }
             }
 
+            switch (SyntaxFacts.GetContextualKeywordKind(token.Text))
+            {
+                case SyntaxKind.SupersededKeyword:
+                case SyntaxKind.SupersedeKeyword:
+                    return true;
+            }
+
             return false;
         }
 

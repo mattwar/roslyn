@@ -1388,9 +1388,9 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
         }
 
         private static DeclarationModifiers s_fieldModifiers = DeclarationModifiers.Const | DeclarationModifiers.New | DeclarationModifiers.ReadOnly | DeclarationModifiers.Static;
-        private static DeclarationModifiers s_methodModifiers = DeclarationModifiers.Abstract | DeclarationModifiers.Async | DeclarationModifiers.New | DeclarationModifiers.Override | DeclarationModifiers.Partial | DeclarationModifiers.Sealed | DeclarationModifiers.Static | DeclarationModifiers.Virtual;
+        private static DeclarationModifiers s_methodModifiers = DeclarationModifiers.Abstract | DeclarationModifiers.Async | DeclarationModifiers.New | DeclarationModifiers.Override | DeclarationModifiers.Partial | DeclarationModifiers.Sealed | DeclarationModifiers.Static | DeclarationModifiers.Virtual | DeclarationModifiers.Supersede;
         private static DeclarationModifiers s_constructorModifiers = DeclarationModifiers.Static;
-        private static DeclarationModifiers s_propertyModifiers = DeclarationModifiers.Abstract | DeclarationModifiers.New | DeclarationModifiers.Override | DeclarationModifiers.ReadOnly | DeclarationModifiers.Sealed | DeclarationModifiers.Static | DeclarationModifiers.Virtual;
+        private static DeclarationModifiers s_propertyModifiers = DeclarationModifiers.Abstract | DeclarationModifiers.New | DeclarationModifiers.Override | DeclarationModifiers.ReadOnly | DeclarationModifiers.Sealed | DeclarationModifiers.Static | DeclarationModifiers.Virtual | DeclarationModifiers.Supersede;
         private static DeclarationModifiers s_eventModifiers = DeclarationModifiers.Abstract | DeclarationModifiers.New | DeclarationModifiers.Override | DeclarationModifiers.Sealed | DeclarationModifiers.Static | DeclarationModifiers.Virtual;
         private static DeclarationModifiers s_eventFieldModifiers = DeclarationModifiers.New | DeclarationModifiers.Static;
         private static DeclarationModifiers s_indexerModifiers = DeclarationModifiers.Abstract | DeclarationModifiers.New | DeclarationModifiers.Override | DeclarationModifiers.ReadOnly | DeclarationModifiers.Sealed | DeclarationModifiers.Static | DeclarationModifiers.Virtual;
@@ -1638,6 +1638,11 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
                 list = list.Add(SyntaxFactory.Token(SyntaxKind.NewKeyword));
             }
 
+            if (modifiers.IsSupersede)
+            {
+                list = list.Add(SyntaxFactory.Token(SyntaxKind.SupersedeKeyword));
+            }
+
             if (modifiers.IsOverride)
             {
                 list = list.Add(SyntaxFactory.Token(SyntaxKind.OverrideKeyword));
@@ -1700,6 +1705,12 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
 
             foreach (var token in modifierList)
             {
+                var kind = token.Kind();
+                if (kind == SyntaxKind.IdentifierToken)
+                {
+                    kind = SyntaxFacts.GetContextualKeywordKind(token.Text);
+                }
+
                 switch (token.Kind())
                 {
                     case SyntaxKind.PublicKeyword:
@@ -1776,6 +1787,10 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
 
                     case SyntaxKind.PartialKeyword:
                         modifiers = modifiers | DeclarationModifiers.Partial;
+                        break;
+
+                    case SyntaxKind.SupersedeKeyword:
+                        modifiers = modifiers | DeclarationModifiers.Supersede;
                         break;
                 }
             }
@@ -3310,6 +3325,18 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
 
         #region Statements and Expressions
 
+        public override SyntaxNode RaiseEventStatement(SyntaxNode eventExpression, IEnumerable<SyntaxNode> eventArguments)
+        {
+            return CreateBlock(
+                this.LocalDeclarationStatement("ev", eventExpression),
+                this.IfStatement(
+                    condition: this.ReferenceNotEqualsExpression(this.IdentifierName("ev"), this.NullLiteralExpression()),
+                    trueStatements: new SyntaxNode[]
+                    {
+                        this.InvocationExpression(this.IdentifierName("ev"), eventArguments)
+                    }));
+        }
+
         public override SyntaxNode AwaitExpression(SyntaxNode expression)
         {
             return SyntaxFactory.AwaitExpression((ExpressionSyntax)expression);
@@ -3349,6 +3376,11 @@ namespace Microsoft.CodeAnalysis.CSharp.CodeGeneration
         private BlockSyntax CreateBlock(IEnumerable<SyntaxNode> statements)
         {
             return SyntaxFactory.Block(AsStatementList(statements));
+        }
+
+        private BlockSyntax CreateBlock(params SyntaxNode[] statements)
+        {
+            return CreateBlock((IEnumerable<SyntaxNode>)statements);
         }
 
         private SyntaxList<StatementSyntax> AsStatementList(IEnumerable<SyntaxNode> nodes)

@@ -1,2 +1,7 @@
+Microsoft.CodeAnalysis.Editing.DeclarationModifiers.IsSupersede.get -> bool
+Microsoft.CodeAnalysis.Editing.DeclarationModifiers.WithSupersede(bool isSupersede) -> Microsoft.CodeAnalysis.Editing.DeclarationModifiers
+Microsoft.CodeAnalysis.Editing.SyntaxGenerator.RaiseEventStatement(Microsoft.CodeAnalysis.SyntaxNode eventExpression, params Microsoft.CodeAnalysis.SyntaxNode[] eventArguments) -> Microsoft.CodeAnalysis.SyntaxNode
 Microsoft.CodeAnalysis.Project.IsSubmission.get -> bool
 Microsoft.CodeAnalysis.Workspace.UpdateReferencesAfterAdd() -> void
+abstract Microsoft.CodeAnalysis.Editing.SyntaxGenerator.RaiseEventStatement(Microsoft.CodeAnalysis.SyntaxNode eventExpression, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.SyntaxNode> eventArguments) -> Microsoft.CodeAnalysis.SyntaxNode
+static Microsoft.CodeAnalysis.Editing.DeclarationModifiers.Supersede.get -> Microsoft.CodeAnalysis.Editing.DeclarationModifiers

@@ -541,6 +541,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         ERR_PartialMethodMustReturnVoid = 766,
         ERR_ExplicitImplCollisionOnRefOut = 767,
         ERR_IndirectRecursiveConstructorCall = 768,
+        ERR_SupersededMethodNotDefined = 769,
 
         // unused 769-799
         //ERR_NoEmptyArrayRanges = 800,

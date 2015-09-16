@@ -1070,6 +1070,8 @@ namespace Microsoft.CodeAnalysis.CSharp
                 case SyntaxKind.AsyncKeyword:
                 case SyntaxKind.AwaitKeyword:
                 case SyntaxKind.WhenKeyword:
+                case SyntaxKind.SupersedeKeyword:
+                case SyntaxKind.SupersededKeyword:
                     return true;
                 default:
                     return false;
@@ -1169,6 +1171,10 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return SyntaxKind.WhenKeyword;
                 case "nameof":
                     return SyntaxKind.NameOfKeyword;
+                case "supersede":
+                    return SyntaxKind.SupersedeKeyword;
+                case "superseded":
+                    return SyntaxKind.SupersededKeyword;
                 default:
                     return SyntaxKind.None;
             }
@@ -1570,6 +1576,10 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return "$\"";
                 case SyntaxKind.InterpolatedStringEndToken:
                     return "\"";
+                case SyntaxKind.SupersedeKeyword:
+                    return "supersede";
+                case SyntaxKind.SupersededKeyword:
+                    return "superseded";
                 default:
                     return string.Empty;
             }

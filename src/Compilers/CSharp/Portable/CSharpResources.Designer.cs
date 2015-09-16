@@ -7910,6 +7910,15 @@ namespace Microsoft.CodeAnalysis.CSharp {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to The superseded method is not defined..
+        /// </summary>
+        internal static string ERR_SupersededMethodNotDefined {
+            get {
+                return ResourceManager.GetString("ERR_SupersededMethodNotDefined", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Control cannot fall out of switch from final case label (&apos;{0}&apos;).
         /// </summary>
         internal static string ERR_SwitchFallOut {

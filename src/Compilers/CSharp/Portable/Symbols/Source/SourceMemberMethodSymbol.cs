@@ -15,7 +15,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
     {
         private readonly ImmutableArray<TypeParameterSymbol> _typeParameters;
         private readonly TypeSymbol _explicitInterfaceType;
-        private readonly string _name;
+        private string _name;
         private readonly bool _isExpressionBodied;
 
         private ImmutableArray<MethodSymbol> _lazyExplicitInterfaceImplementations;
@@ -154,6 +154,47 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 _constraintClauseBinder = null;
             }
         }
+
+#if !NOTSUPER
+        private SourceMemberMethodSymbol _supersedes;
+        private SourceMemberMethodSymbol _supersededBy;
+
+        public override Symbol Supersedes
+        {
+            get
+            {
+                return _supersedes;
+            }
+        }
+        public override Symbol SupersededBy
+        {
+            get
+            {
+                return _supersededBy;
+            }
+        }
+
+        public override string MetadataName
+        {
+            get
+            {
+                if (_supersededBy != null)
+                {
+                    return base.MetadataName + this.GetSupersededCount();
+                }
+                else
+                {
+                    return base.MetadataName;
+                }
+            }
+        }
+
+        internal static void InitializeSupersededMethods(SourceMemberMethodSymbol supersededMethod, SourceMemberMethodSymbol supersedingMethod)
+        {
+            supersededMethod._supersededBy = supersedingMethod;
+            supersedingMethod._supersedes = supersededMethod;
+        }
+#endif
 
         public override bool ReturnsVoid
         {
@@ -763,7 +804,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                         DeclarationModifiers.Abstract |
                         DeclarationModifiers.Static |
                         DeclarationModifiers.Virtual |
-                        DeclarationModifiers.Override;
+                        DeclarationModifiers.Override |
+                        DeclarationModifiers.Supersede;
                 }
             }
 

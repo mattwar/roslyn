@@ -125,6 +125,11 @@ namespace Microsoft.CodeAnalysis.Editing
             get { return (_modifiers & Modifiers.WriteOnly) != 0; }
         }
 
+        public bool IsSupersede
+        {
+            get { return (_modifiers & Modifiers.Supersede) != 0; }
+        }
+
         public DeclarationModifiers WithIsStatic(bool isStatic)
         {
             return new DeclarationModifiers(SetFlag(_modifiers, Modifiers.Static, isStatic));
@@ -190,6 +195,11 @@ namespace Microsoft.CodeAnalysis.Editing
             return new DeclarationModifiers(SetFlag(_modifiers, Modifiers.WriteOnly, isWriteOnly));
         }
 
+        public DeclarationModifiers WithSupersede(bool isSupersede)
+        {
+            return new DeclarationModifiers(SetFlag(_modifiers, Modifiers.Supersede, isSupersede));
+        }
+
         private static Modifiers SetFlag(Modifiers existing, Modifiers modifier, bool isSet)
         {
             return isSet ? (existing | modifier) : (existing & ~modifier);
@@ -211,7 +221,8 @@ namespace Microsoft.CodeAnalysis.Editing
             WithEvents = 0x0200,
             Partial = 0x0400,
             Async = 0x0800,
-            WriteOnly = 0x1000
+            WriteOnly = 0x1000,
+            Supersede = 0x2000
         }
 
         public static DeclarationModifiers None => default(DeclarationModifiers);
@@ -229,6 +240,7 @@ namespace Microsoft.CodeAnalysis.Editing
         public static DeclarationModifiers Partial => new DeclarationModifiers(Modifiers.Partial);
         public static DeclarationModifiers Async => new DeclarationModifiers(Modifiers.Async);
         public static DeclarationModifiers WriteOnly => new DeclarationModifiers(Modifiers.WriteOnly);
+        public static DeclarationModifiers Supersede => new DeclarationModifiers(Modifiers.Supersede);
 
         public static DeclarationModifiers operator |(DeclarationModifiers left, DeclarationModifiers right)
         {

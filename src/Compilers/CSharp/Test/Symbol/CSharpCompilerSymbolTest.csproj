@@ -189,6 +189,7 @@
     <Compile Include="Symbols\Source\SourcePlusMetadataTests.cs" />
     <Compile Include="Symbols\Source\TypeMapTests.cs" />
     <Compile Include="Symbols\Source\UsingAliasTests.cs" />
+    <Compile Include="Symbols\SupersedeTests.cs" />
     <Compile Include="Symbols\SymbolDistinguisherTests.cs" />
     <Compile Include="Symbols\SymbolErrorTests.cs" />
     <Compile Include="Symbols\SymbolExtensionTests.cs" />
