@@ -357,16 +357,41 @@ namespace Microsoft.CodeAnalysis
 
             cancellationToken.ThrowIfCancellationRequested();
 
+#if !NOINJECTORS
             // for now, look for code injectors in same assemblies that supplied analyzers
             var analyzerAssemblies = Arguments.ResolveAnalyzerReferences(this.AnalyzerLoader).OfType<AnalyzerFileReference>().Select(af => af.GetAssembly());
             var injectionProcessor = new CodeInjection.CodeInjectionProcessor();
             var injectors = injectionProcessor.GetInjectors(analyzerAssemblies, compilation.Language);
             if (injectors.Length > 0)
             {
-                compilation = compilation.AddSyntaxTrees(injectionProcessor.Generate(compilation, injectors, cancellationToken));
+                var injectorDiagnostics = new List<Diagnostic>();
+                string generatedFileDirectory = Arguments.OutputDirectory;
+                var generatedTrees = injectionProcessor.Generate(compilation, injectors, generatedFileDirectory, reportDiagnostic: dx => injectorDiagnostics.Add(dx), cancellationToken: cancellationToken);
+
+                // output generated trees
+                foreach (var tree in generatedTrees)
+                {
+                    var text = tree.GetText(cancellationToken);
+                    var file = OpenFile(tree.FilePath, consoleOutput, PortableShim.FileMode.Create, PortableShim.FileAccess.Write, PortableShim.FileShare.None);
+                    if (file != null)
+                    {
+                        using (var writer = new StreamWriter(file, text.Encoding ?? Encoding.UTF8))
+                        {
+                            text.Write(writer, cancellationToken);
+                        }
+                    }
+                }
+
+                compilation = compilation.AddSyntaxTrees(generatedTrees);
+
+                if (injectorDiagnostics.Count > 0)
+                {
+                    ReportErrors(injectorDiagnostics, consoleOutput, errorLogger);
+                }
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+#endif
 
             CancellationTokenSource analyzerCts = null;
             AnalyzerManager analyzerManager = null;

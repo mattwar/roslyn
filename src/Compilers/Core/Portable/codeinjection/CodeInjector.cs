@@ -8,48 +8,189 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.CodeAnalysis.Text;
 
 namespace Microsoft.CodeAnalysis.CodeInjection
 {
+    /// <summary>
+    /// CodeInjectors generated source code at runtime based on analysis of and existing compilation.
+    /// The generated source code is compiled into the compilation.
+    /// </summary>
     public abstract class CodeInjector
     {
         public abstract void Initialize(GlobalInjectionContext context);
     }
 
+    /// <summary>
+    /// Place this attribute onto a type to cause it to be considered a <see cref="CodeInjector"/>.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class)]
+    public sealed class CodeInjectorAttribute : Attribute
+    {
+        /// <summary>
+        /// The source languages to which this <see cref="CodeInjector"/> applies.  See <see cref="LanguageNames"/>.
+        /// </summary>
+        public string[] Languages { get; }
+
+        /// <summary>
+        /// Attribute constructor used to specify automatic application of a <see cref="CodeInjector"/>.
+        /// </summary>
+        /// <param name="firstLanguage">One language to which the <see cref="CodeInjector"/> applies.</param>
+        /// <param name="additionalLanguages">Additional languages to which the <see cref="CodeInjector"/> applies. See <see cref="LanguageNames"/>.</param>
+        public CodeInjectorAttribute(string firstLanguage, params string[] additionalLanguages)
+        {
+            if (firstLanguage == null)
+            {
+                throw new ArgumentNullException(nameof(firstLanguage));
+            }
+
+            if (additionalLanguages == null)
+            {
+                throw new ArgumentNullException(nameof(additionalLanguages));
+            }
+
+            var languages = new string[additionalLanguages.Length + 1];
+            languages[0] = firstLanguage;
+
+            if (additionalLanguages.Length > 0)
+            {
+                Array.Copy(additionalLanguages, 0, languages, 1, additionalLanguages.Length);
+            }
+
+            this.Languages = languages;
+        }
+    }
+
     public class CodeInjectionProcessor
     {
-        private readonly GlobalInjectionContext _globalContext = new GlobalInjectionContext();
+        private readonly GlobalInjectionContext _globalContext;
+
+        private ConditionalWeakTable<Type, CodeInjector> _injectors
+            = new ConditionalWeakTable<Type, CodeInjector>();
+
+        private readonly List<Action<CompilationStartInjectionContext>> _globalCompilationStartActions
+            = new List<Action<CompilationStartInjectionContext>>();
+
+        private readonly List<Action<SymbolInjectionContext>> _globalSymbolActions
+            = new List<Action<SymbolInjectionContext>>();
+
+        private readonly List<Action<SymbolInjectionContext>> _symbolActions
+            = new List<Action<SymbolInjectionContext>>();
+
+        private readonly List<Action<CompilationEndInjectionContext>> _globalCompilationEndActions
+            = new List<Action<CompilationEndInjectionContext>>();
+
+        private readonly List<Action<CompilationEndInjectionContext>> _compilationEndActions
+            = new List<Action<CompilationEndInjectionContext>>();
+
+        private string _generatedFileDirectoryPath;
+        private Compilation _compilation;
+        private CancellationToken _cancellationToken;
+        private ISymbol _symbol;
+
+        private readonly List<SyntaxTree> _addedTrees
+           = new List<SyntaxTree>();
+
+        public CodeInjectionProcessor()
+        {
+            _globalContext = new GlobalInjectionContext(this);
+        }
+
+        internal Compilation Compilation
+        {
+            get { return _compilation; }
+        }
+
+        internal ISymbol Symbol
+        {
+            get { return _symbol; }
+        }
+
+        internal CancellationToken CancellationToken
+        {
+            get { return _cancellationToken; }
+        }
 
         public ImmutableArray<SyntaxTree> Generate(
             Compilation compilation,
             IEnumerable<CodeInjector> injectors,
+            string generatedFileDirectoryPath = null,
+            Action<Diagnostic> reportDiagnostic = null,
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            var compilationContext = new CompilationInjectionContext(compilation);
-            foreach (var compilationAction in _globalContext.Actions)
+            _generatedFileDirectoryPath = generatedFileDirectoryPath;
+            _compilation = compilation;
+            _cancellationToken = cancellationToken;
+
+            _addedTrees.Clear();
+            _symbolActions.Clear();
+            _compilationEndActions.Clear();
+
+            var compilationContext = new CompilationStartInjectionContext(this);
+            foreach (var compilationAction in _globalCompilationStartActions)
             {
-                compilationAction(compilationContext);
+                cancellationToken.ThrowIfCancellationRequested();
+                DoInjectorAction(compilationAction, compilationContext, reportDiagnostic);
             }
 
             var symbols = new List<ITypeSymbol>();
             GatherTypeSymbols(compilation.GlobalNamespace, symbols);
 
-            var addedTrees = new List<SyntaxTree>();
+            var symbolContext = new SymbolInjectionContext(this);
             foreach (var sym in symbols)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                _symbol = sym;
 
-                var symbolContext = new SymbolInjectionContext(compilation, sym, cancellationToken);
-
-                foreach (var action in compilationContext.Actions)
+                foreach (var action in _symbolActions)
                 {
-                    action(symbolContext);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    DoInjectorAction(action, symbolContext, reportDiagnostic);
                 }
 
-                addedTrees.AddRange(symbolContext.AddedTrees);
+                foreach (var action in _globalSymbolActions)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    DoInjectorAction(action, symbolContext, reportDiagnostic);
+                }
             }
 
-            return addedTrees.ToImmutableArray();
+            var endCompilationContext = new CompilationEndInjectionContext(this);
+            foreach (var endCompilationAction in _compilationEndActions)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                DoInjectorAction(endCompilationAction, endCompilationContext, reportDiagnostic);
+            }
+
+            foreach (var endCompilationAction in _globalCompilationEndActions)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                DoInjectorAction(endCompilationAction, endCompilationContext, reportDiagnostic);
+            }
+
+            var result = _addedTrees.ToImmutableArray();
+
+            _generatedFileDirectoryPath = null;
+            _compilation = null;
+            _cancellationToken = default(CancellationToken);
+            _addedTrees.Clear();
+
+            return result;
+        }
+
+        private void DoInjectorAction<TArg>(Action<TArg> action, TArg arg, Action<Diagnostic> reportDiagnotic)
+        {
+            try
+            {
+                action(arg);
+            }
+            catch (Exception e)
+            {
+                if (reportDiagnotic != null)
+                {
+                    var dx = Diagnostics.AnalyzerExecutor.CreateDriverExceptionDiagnostic(e);
+                    reportDiagnotic(dx);
+                }
+            }
         }
 
         private static void GatherTypeSymbols(INamespaceOrTypeSymbol symbol, List<ITypeSymbol> types)
@@ -75,8 +216,63 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             }
         }
 
-        private ConditionalWeakTable<Type, CodeInjector> _injectors
-            = new ConditionalWeakTable<Type, CodeInjector>();
+        internal void AddCompilationStartAction(Action<CompilationStartInjectionContext> action)
+        {
+            _globalCompilationStartActions.Add(action);
+        }
+
+        internal void AddSymbolAction(Action<SymbolInjectionContext> action)
+        {
+            _symbolActions.Add(action);
+        }
+
+        internal void AddGlobalSymbolAction(Action<SymbolInjectionContext> action)
+        {
+            _globalSymbolActions.Add(action);
+        }
+
+        internal void AddCompilationEndAction(Action<CompilationEndInjectionContext> action)
+        {
+            _compilationEndActions.Add(action);
+        }
+
+        internal void AddGlobalCompilationEndAction(Action<CompilationEndInjectionContext> action)
+        {
+            _globalCompilationEndActions.Add(action);
+        }
+
+        internal void AddCompilationUnit(CodeInjector injector, string name, SyntaxNode root)
+        {
+            root = root.NormalizeWhitespace(eol: Environment.NewLine);
+            AddCompilationUnit(injector, name, root.ToFullString());
+        }
+
+        internal void AddCompilationUnit(CodeInjector injector, string name, string text)
+        {
+            AddCompilationUnit(injector, name, SourceText.From(text));
+        }
+
+        internal void AddCompilationUnit(CodeInjector injector, string name, SourceText text)
+        {
+            var path = $"${injector.GetType().Name}_{name}.cs";
+
+            if (!string.IsNullOrWhiteSpace(_generatedFileDirectoryPath))
+            {
+                path = System.IO.Path.Combine(_generatedFileDirectoryPath, path);
+            }
+
+            // use existing tree to make a new tree instance.
+            var existingTree = _compilation.SyntaxTrees.ElementAt(0);
+
+            if (text.Encoding == null)
+            {
+                text = SourceText.From(text.ToString(), existingTree.Encoding ?? System.Text.Encoding.UTF8);
+            }
+
+            var newTree = existingTree.WithChangedText(text).WithFilePath(path);
+
+            _addedTrees.Add(newTree);
+        }
 
         public CodeInjector GetInjector(Type injectorType)
         {
@@ -174,90 +370,134 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 
     public class GlobalInjectionContext
     {
-        private readonly List<Action<CompilationInjectionContext>> _actions
-            = new List<Action<CompilationInjectionContext>>();
+        private CodeInjectionProcessor _processor;
 
         internal CodeInjector Injector { get; set; }
 
-        public GlobalInjectionContext()
+        internal GlobalInjectionContext(CodeInjectionProcessor processor)
         {
+            _processor = processor;
         }
 
-        public void RegisterCompilationAction(Action<CompilationInjectionContext> action)
+        public void RegisterCompilationStartAction(Action<CompilationStartInjectionContext> action)
         {
-            _actions.Add(ctx =>
-            {
-                ctx.Injector = Injector;
-                action(ctx);
-            });
-        }
-
-        internal IReadOnlyList<Action<CompilationInjectionContext>> Actions
-        {
-            get { return _actions; }
-        }
-    }
-
-    public class CompilationInjectionContext
-    {
-        public Compilation Compilation { get; }
-
-        internal CodeInjector Injector { get; set; }
-
-        private readonly List<Action<SymbolInjectionContext>> _actions
-            = new List<Action<SymbolInjectionContext>>();
-
-        internal CompilationInjectionContext(Compilation compilation)
-        {
-            this.Compilation = compilation;
-        }
-
-        public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
-        {
-            _actions.Add(ctx =>
+            _processor.AddCompilationStartAction(ctx =>
             {
                 ctx.Injector = this.Injector;
                 action(ctx);
             });
         }
 
-        internal IReadOnlyList<Action<SymbolInjectionContext>> Actions
+        public void RegisterCompilationEndAction(Action<CompilationEndInjectionContext> action)
         {
-            get { return _actions; }
+            _processor.AddGlobalCompilationEndAction(ctx =>
+            {
+                ctx.Injector = this.Injector;
+                action(ctx);
+            });
+        }
+
+        public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
+        {
+            _processor.AddGlobalSymbolAction(ctx =>
+            {
+                ctx.Injector = this.Injector;
+                action(ctx);
+            });
+        }
+    }
+
+    public class CompilationStartInjectionContext
+    {
+        private CodeInjectionProcessor _processor;
+
+        public Compilation Compilation { get { return _processor.Compilation; } }
+        public CancellationToken CancellationToken { get { return _processor.CancellationToken; } }
+
+        internal CodeInjector Injector { get; set; }
+
+        internal CompilationStartInjectionContext(CodeInjectionProcessor processor)
+        {
+            _processor = processor;
+        }
+
+        public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
+        {
+            _processor.AddSymbolAction(ctx =>
+            {
+                ctx.Injector = this.Injector;
+                action(ctx);
+            });
+        }
+
+        public void RegisterCompilationEndAction(Action<CompilationEndInjectionContext> action)
+        {
+            _processor.AddCompilationEndAction(ctx =>
+            {
+                ctx.Injector = this.Injector;
+                action(ctx);
+            });
+        }
+    }
+
+    public class CompilationEndInjectionContext
+    {
+        private CodeInjectionProcessor _processor;
+
+        public Compilation Compilation { get { return _processor.Compilation; } }
+        public CancellationToken CancellationToken { get { return _processor.CancellationToken; } }
+
+        internal CodeInjector Injector { get; set; }
+
+        internal CompilationEndInjectionContext(CodeInjectionProcessor processor)
+        {
+            _processor = processor;
+        }
+
+        public void AddCompilationUnit(string name, SyntaxNode root)
+        {
+            _processor.AddCompilationUnit(this.Injector, name, root);
+        }
+
+        public void AddCompilationUnit(string name, string text)
+        {
+            _processor.AddCompilationUnit(this.Injector, name, text);
+        }
+
+        public void AddCompilationUnit(string name, SourceText text)
+        {
+            _processor.AddCompilationUnit(this.Injector, name, text);
         }
     }
 
     public class SymbolInjectionContext
     {
-        public Compilation Compilation { get; }
-        public ISymbol Symbol { get; }
-        public CancellationToken CancellationToken { get; }
+        private CodeInjectionProcessor _processor;
+
+        public Compilation Compilation { get { return _processor.Compilation; } }
+        public CancellationToken CancellationToken { get { return _processor.CancellationToken; } }
+        public ISymbol Symbol { get { return _processor.Symbol; } }
 
         internal CodeInjector Injector { get; set; }
 
-        internal readonly List<SyntaxTree> AddedTrees
-           = new List<SyntaxTree>();
-
-        internal SymbolInjectionContext(
-            Compilation compilation, 
-            ISymbol symbol, 
-            CancellationToken cancellationToken)
+        internal SymbolInjectionContext(CodeInjectionProcessor processor)
         {
-            this.Compilation = compilation;
-            this.Symbol = symbol;
-            this.CancellationToken = cancellationToken;
-            this.Injector = null;
+            _processor = processor;
         }
 
         public void AddCompilationUnit(SyntaxNode root)
         {
-            string path = "$" + Symbol.Name + "_" + this.Injector.GetType().Name;
-            root = root.NormalizeWhitespace();
+            _processor.AddCompilationUnit(this.Injector, this.Symbol.Name, root);
+        }
 
-            var symbolDeclTree = this.Symbol.DeclaringSyntaxReferences.First().SyntaxTree;
-            var tree = symbolDeclTree.WithRootAndOptions(root, symbolDeclTree.Options).WithFilePath(path);
+        public void AddCompilationUnit(string text)
+        {
+            _processor.AddCompilationUnit(this.Injector, this.Symbol.Name, text);
+        }
 
-            this.AddedTrees.Add(tree);
+        public void AddCompilationUnit(SourceText text)
+        {
+            _processor.AddCompilationUnit(this.Injector, this.Symbol.Name, text);
         }
     }
 }

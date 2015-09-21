@@ -641,7 +641,7 @@ namespace Microsoft.CodeAnalysis
                     compilation = compilation.RemoveSyntaxTrees(existingGeneratedTrees);
                 }
 
-                var trees = s_injectorProcessor.Generate(compilation, injectors, cancellationToken);
+                var trees = s_injectorProcessor.Generate(compilation, injectors, cancellationToken: cancellationToken);
                 if (trees.Length > 0)
                 {
                     return compilation.AddSyntaxTrees(trees);

@@ -1,4 +1,35 @@
 *REMOVED*static Microsoft.CodeAnalysis.SyntaxNodeExtensions.NormalizeWhitespace<TNode>(this TNode node, string indentation = "    ", bool elasticTrivia = false) -> TNode
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.CodeInjectionProcessor() -> void
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.Generate(Microsoft.CodeAnalysis.Compilation compilation, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.CodeInjection.CodeInjector> injectors, string generatedFileDirectoryPath = null, System.Action<Microsoft.CodeAnalysis.Diagnostic> reportDiagnostic = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.SyntaxTree>
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.GetInjector(System.Type injectorType) -> Microsoft.CodeAnalysis.CodeInjection.CodeInjector
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.GetInjectors(System.Collections.Generic.IEnumerable<System.Reflection.Assembly> injectionAssemblies, string language) -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.CodeInjection.CodeInjector>
+Microsoft.CodeAnalysis.CodeInjection.CodeInjector
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute.CodeInjectorAttribute(string firstLanguage, params string[] additionalLanguages) -> void
+Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute.Languages.get -> string[]
+Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext
+Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext.AddCompilationUnit(string name, Microsoft.CodeAnalysis.SyntaxNode root) -> void
+Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext.AddCompilationUnit(string name, Microsoft.CodeAnalysis.Text.SourceText text) -> void
+Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext.AddCompilationUnit(string name, string text) -> void
+Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext.CancellationToken.get -> System.Threading.CancellationToken
+Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext.Compilation.get -> Microsoft.CodeAnalysis.Compilation
+Microsoft.CodeAnalysis.CodeInjection.CompilationStartInjectionContext
+Microsoft.CodeAnalysis.CodeInjection.CompilationStartInjectionContext.CancellationToken.get -> System.Threading.CancellationToken
+Microsoft.CodeAnalysis.CodeInjection.CompilationStartInjectionContext.Compilation.get -> Microsoft.CodeAnalysis.Compilation
+Microsoft.CodeAnalysis.CodeInjection.CompilationStartInjectionContext.RegisterCompilationEndAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext> action) -> void
+Microsoft.CodeAnalysis.CodeInjection.CompilationStartInjectionContext.RegisterSymbolAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext> action) -> void
+Microsoft.CodeAnalysis.CodeInjection.GlobalInjectionContext
+Microsoft.CodeAnalysis.CodeInjection.GlobalInjectionContext.RegisterCompilationEndAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.CompilationEndInjectionContext> action) -> void
+Microsoft.CodeAnalysis.CodeInjection.GlobalInjectionContext.RegisterCompilationStartAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.CompilationStartInjectionContext> action) -> void
+Microsoft.CodeAnalysis.CodeInjection.GlobalInjectionContext.RegisterSymbolAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext> action) -> void
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.AddCompilationUnit(Microsoft.CodeAnalysis.SyntaxNode root) -> void
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.AddCompilationUnit(Microsoft.CodeAnalysis.Text.SourceText text) -> void
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.AddCompilationUnit(string text) -> void
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.CancellationToken.get -> System.Threading.CancellationToken
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.Compilation.get -> Microsoft.CodeAnalysis.Compilation
+Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.Symbol.get -> Microsoft.CodeAnalysis.ISymbol
 Microsoft.CodeAnalysis.CommandLineArguments.ScriptArguments.get -> System.Collections.Immutable.ImmutableArray<string>
 Microsoft.CodeAnalysis.CommandLineParser.IsInteractive.get -> bool
 Microsoft.CodeAnalysis.Compilation.GetSubmissionResultType(out bool hasValue) -> Microsoft.CodeAnalysis.ITypeSymbol

@@ -96,25 +96,6 @@ Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.Enumerator.Reset() -> void
 Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.Equals(Microsoft.CodeAnalysis.ChildSyntaxList.Reversed other) -> bool
 Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.GetEnumerator() -> Microsoft.CodeAnalysis.ChildSyntaxList.Reversed.Enumerator
 Microsoft.CodeAnalysis.ChildSyntaxList.this[int index].get -> Microsoft.CodeAnalysis.SyntaxNodeOrToken
-Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor
-Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.Generate(Microsoft.CodeAnalysis.Compilation compilation, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.CodeInjection.CodeInjector> injectors, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.SyntaxTree>
-Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.GetInjector(System.Type injectorType) -> Microsoft.CodeAnalysis.CodeInjection.CodeInjector
-Microsoft.CodeAnalysis.CodeInjection.CodeInjectionProcessor.GetInjectors(System.Collections.Generic.IEnumerable<System.Reflection.Assembly> injectionAssemblies, string language) -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.CodeInjection.CodeInjector>
-Microsoft.CodeAnalysis.CodeInjection.CodeInjector
-Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute
-Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute.CodeInjectorAttribute(string firstLanguage, params string[] additionalLanguages) -> void
-Microsoft.CodeAnalysis.CodeInjection.CodeInjectorAttribute.Languages.get -> string[]
-Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext
-Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext.Compilation.get -> Microsoft.CodeAnalysis.Compilation
-Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext.RegisterSymbolAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext> action) -> void
-Microsoft.CodeAnalysis.CodeInjection.GlobalInjectionContext
-Microsoft.CodeAnalysis.CodeInjection.GlobalInjectionContext.GlobalInjectionContext() -> void
-Microsoft.CodeAnalysis.CodeInjection.GlobalInjectionContext.RegisterCompilationAction(System.Action<Microsoft.CodeAnalysis.CodeInjection.CompilationInjectionContext> action) -> void
-Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext
-Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.AddCompilationUnit(Microsoft.CodeAnalysis.SyntaxNode root) -> void
-Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.CancellationToken.get -> System.Threading.CancellationToken
-Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.Compilation.get -> Microsoft.CodeAnalysis.Compilation
-Microsoft.CodeAnalysis.CodeInjection.SymbolInjectionContext.Symbol.get -> Microsoft.CodeAnalysis.ISymbol
 Microsoft.CodeAnalysis.CommandLineAnalyzerReference
 Microsoft.CodeAnalysis.CommandLineAnalyzerReference.CommandLineAnalyzerReference(string path) -> void
 Microsoft.CodeAnalysis.CommandLineAnalyzerReference.Equals(Microsoft.CodeAnalysis.CommandLineAnalyzerReference other) -> bool
