@@ -68,47 +68,9 @@ namespace Microsoft.CodeAnalysis.CodeInjection
         private ConditionalWeakTable<Type, CodeInjector> _injectors
             = new ConditionalWeakTable<Type, CodeInjector>();
 
-        private readonly List<Action<CompilationStartInjectionContext>> _globalCompilationStartActions
-            = new List<Action<CompilationStartInjectionContext>>();
-
-        private readonly List<Action<SymbolInjectionContext>> _globalSymbolActions
-            = new List<Action<SymbolInjectionContext>>();
-
-        private readonly List<Action<SymbolInjectionContext>> _symbolActions
-            = new List<Action<SymbolInjectionContext>>();
-
-        private readonly List<Action<CompilationEndInjectionContext>> _globalCompilationEndActions
-            = new List<Action<CompilationEndInjectionContext>>();
-
-        private readonly List<Action<CompilationEndInjectionContext>> _compilationEndActions
-            = new List<Action<CompilationEndInjectionContext>>();
-
-        private string _generatedFileDirectoryPath;
-        private Compilation _compilation;
-        private CancellationToken _cancellationToken;
-        private ISymbol _symbol;
-
-        private readonly List<SyntaxTree> _addedTrees
-           = new List<SyntaxTree>();
-
         public CodeInjectionProcessor()
         {
             _globalContext = new GlobalInjectionContext(this);
-        }
-
-        internal Compilation Compilation
-        {
-            get { return _compilation; }
-        }
-
-        internal ISymbol Symbol
-        {
-            get { return _symbol; }
-        }
-
-        internal CancellationToken CancellationToken
-        {
-            get { return _cancellationToken; }
         }
 
         public ImmutableArray<SyntaxTree> Generate(
@@ -118,61 +80,48 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             Action<Diagnostic> reportDiagnostic = null,
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            _generatedFileDirectoryPath = generatedFileDirectoryPath;
-            _compilation = compilation;
-            _cancellationToken = cancellationToken;
-
-            _addedTrees.Clear();
-            _symbolActions.Clear();
-            _compilationEndActions.Clear();
-
-            var compilationContext = new CompilationStartInjectionContext(this);
-            foreach (var compilationAction in _globalCompilationStartActions)
+            var compilationStartContext = new CompilationStartInjectionContext(this, generatedFileDirectoryPath, compilation, cancellationToken);
+            foreach (var compilationAction in _globalContext.CompilationStartActions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                DoInjectorAction(compilationAction, compilationContext, reportDiagnostic);
+                DoInjectorAction(compilationAction, compilationStartContext, reportDiagnostic);
             }
 
             var symbols = new List<ITypeSymbol>();
             GatherTypeSymbols(compilation.Assembly.GlobalNamespace, symbols);
 
-            var symbolContext = new SymbolInjectionContext(this);
+            var symbolContext = new SymbolInjectionContext(compilationStartContext);
             foreach (var sym in symbols)
             {
-                _symbol = sym;
+                symbolContext.Symbol = sym;
 
-                foreach (var action in _symbolActions)
+                foreach (var action in compilationStartContext.SymbolActions)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     DoInjectorAction(action, symbolContext, reportDiagnostic);
                 }
 
-                foreach (var action in _globalSymbolActions)
+                foreach (var action in _globalContext.SymbolActions)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     DoInjectorAction(action, symbolContext, reportDiagnostic);
                 }
             }
 
-            var endCompilationContext = new CompilationEndInjectionContext(this);
-            foreach (var endCompilationAction in _compilationEndActions)
+            var endCompilationContext = new CompilationEndInjectionContext(compilationStartContext);
+            foreach (var endCompilationAction in compilationStartContext.CompilationEndActions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 DoInjectorAction(endCompilationAction, endCompilationContext, reportDiagnostic);
             }
 
-            foreach (var endCompilationAction in _globalCompilationEndActions)
+            foreach (var endCompilationAction in _globalContext.CompilationEndActions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 DoInjectorAction(endCompilationAction, endCompilationContext, reportDiagnostic);
             }
 
-            var result = _addedTrees.ToImmutableArray();
-
-            _generatedFileDirectoryPath = null;
-            _compilation = null;
-            _cancellationToken = default(CancellationToken);
-            _addedTrees.Clear();
+            var result = compilationStartContext.AddedTrees.ToImmutableArray();
 
             return result;
         }
@@ -214,64 +163,6 @@ namespace Microsoft.CodeAnalysis.CodeInjection
                     GatherTypeSymbols(ms, types);
                 }
             }
-        }
-
-        internal void AddCompilationStartAction(Action<CompilationStartInjectionContext> action)
-        {
-            _globalCompilationStartActions.Add(action);
-        }
-
-        internal void AddSymbolAction(Action<SymbolInjectionContext> action)
-        {
-            _symbolActions.Add(action);
-        }
-
-        internal void AddGlobalSymbolAction(Action<SymbolInjectionContext> action)
-        {
-            _globalSymbolActions.Add(action);
-        }
-
-        internal void AddCompilationEndAction(Action<CompilationEndInjectionContext> action)
-        {
-            _compilationEndActions.Add(action);
-        }
-
-        internal void AddGlobalCompilationEndAction(Action<CompilationEndInjectionContext> action)
-        {
-            _globalCompilationEndActions.Add(action);
-        }
-
-        internal void AddCompilationUnit(CodeInjector injector, string name, SyntaxNode root)
-        {
-            root = root.NormalizeWhitespace(eol: Environment.NewLine);
-            AddCompilationUnit(injector, name, root.ToFullString());
-        }
-
-        internal void AddCompilationUnit(CodeInjector injector, string name, string text)
-        {
-            AddCompilationUnit(injector, name, SourceText.From(text));
-        }
-
-        internal void AddCompilationUnit(CodeInjector injector, string name, SourceText text)
-        {
-            var path = $"${injector.GetType().Name}_{name}.cs";
-
-            if (!string.IsNullOrWhiteSpace(_generatedFileDirectoryPath))
-            {
-                path = System.IO.Path.Combine(_generatedFileDirectoryPath, path);
-            }
-
-            // use existing tree to make a new tree instance.
-            var existingTree = _compilation.SyntaxTrees.ElementAt(0);
-
-            if (text.Encoding == null)
-            {
-                text = SourceText.From(text.ToString(), existingTree.Encoding ?? System.Text.Encoding.UTF8);
-            }
-
-            var newTree = existingTree.WithChangedText(text).WithFilePath(path);
-
-            _addedTrees.Add(newTree);
         }
 
         public CodeInjector GetInjector(Type injectorType)
@@ -387,10 +278,19 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             _processor = processor;
         }
 
+        internal readonly List<Action<CompilationStartInjectionContext>> CompilationStartActions
+            = new List<Action<CompilationStartInjectionContext>>();
+
+        internal readonly List<Action<SymbolInjectionContext>> SymbolActions
+            = new List<Action<SymbolInjectionContext>>();
+
+        internal readonly List<Action<CompilationEndInjectionContext>> CompilationEndActions
+            = new List<Action<CompilationEndInjectionContext>>();
+
         public void RegisterCompilationStartAction(Action<CompilationStartInjectionContext> action)
         {
             var injector = this.Injector;
-            _processor.AddCompilationStartAction(ctx =>
+            this.CompilationStartActions.Add(ctx =>
             {
                 ctx.Injector = injector;
                 action(ctx);
@@ -400,7 +300,7 @@ namespace Microsoft.CodeAnalysis.CodeInjection
         public void RegisterCompilationEndAction(Action<CompilationEndInjectionContext> action)
         {
             var injector = this.Injector;
-            _processor.AddGlobalCompilationEndAction(ctx =>
+            this.CompilationEndActions.Add(ctx =>
             {
                 ctx.Injector = injector;
                 action(ctx);
@@ -410,7 +310,7 @@ namespace Microsoft.CodeAnalysis.CodeInjection
         public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
         {
             var injector = this.Injector;
-            _processor.AddGlobalSymbolAction(ctx =>
+            this.SymbolActions.Add(ctx =>
             {
                 ctx.Injector = injector;
                 action(ctx);
@@ -420,22 +320,34 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 
     public class CompilationStartInjectionContext
     {
-        private CodeInjectionProcessor _processor;
+        internal readonly CodeInjectionProcessor Processor;
+        internal readonly string GeneratedCodeDirectory;
 
-        public Compilation Compilation { get { return _processor.Compilation; } }
-        public CancellationToken CancellationToken { get { return _processor.CancellationToken; } }
+        public Compilation Compilation { get; private set; }
+        public CancellationToken CancellationToken { get; private set; }
 
         internal CodeInjector Injector { get; set; }
 
-        internal CompilationStartInjectionContext(CodeInjectionProcessor processor)
+        internal readonly List<Action<SymbolInjectionContext>> SymbolActions
+            = new List<Action<SymbolInjectionContext>>();
+
+        internal readonly List<Action<CompilationEndInjectionContext>> CompilationEndActions
+            = new List<Action<CompilationEndInjectionContext>>();
+
+        internal List<SyntaxTree> AddedTrees = new List<SyntaxTree>();
+
+        internal CompilationStartInjectionContext(CodeInjectionProcessor processor, string generateCodeDirectory, Compilation compilation, CancellationToken cancellationToken)
         {
-            _processor = processor;
+            this.Processor = processor;
+            this.GeneratedCodeDirectory = generateCodeDirectory;
+            this.Compilation = compilation;
+            this.CancellationToken = cancellationToken;
         }
 
         public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
         {
             var injector = this.Injector;
-            _processor.AddSymbolAction(ctx =>
+            this.SymbolActions.Add(ctx =>
             {
                 ctx.Injector = injector;
                 action(ctx);
@@ -445,72 +357,105 @@ namespace Microsoft.CodeAnalysis.CodeInjection
         public void RegisterCompilationEndAction(Action<CompilationEndInjectionContext> action)
         {
             var injector = this.Injector;
-            _processor.AddCompilationEndAction(ctx =>
+            this.CompilationEndActions.Add(ctx =>
             {
                 ctx.Injector = injector;
                 action(ctx);
             });
         }
+
+        internal void AddCompilationUnit(CodeInjector injector, string name, SyntaxNode root)
+        {
+            root = root.NormalizeWhitespace(eol: Environment.NewLine);
+            AddCompilationUnit(injector, name, root.ToFullString());
+        }
+
+        internal void AddCompilationUnit(CodeInjector injector, string name, string text)
+        {
+            AddCompilationUnit(injector, name, SourceText.From(text));
+        }
+
+        internal void AddCompilationUnit(CodeInjector injector, string name, SourceText text)
+        {
+            var path = $"${injector.GetType().Name}_{name}.cs";
+
+            if (!string.IsNullOrWhiteSpace(this.GeneratedCodeDirectory))
+            {
+                path = System.IO.Path.Combine(this.GeneratedCodeDirectory, path);
+            }
+
+            // use existing tree to make a new tree instance.
+            var existingTree = this.Compilation.SyntaxTrees.ElementAt(0);
+
+            if (text.Encoding == null)
+            {
+                text = SourceText.From(text.ToString(), existingTree.Encoding ?? System.Text.Encoding.UTF8);
+            }
+
+            var newTree = existingTree.WithChangedText(text).WithFilePath(path);
+
+            this.AddedTrees.Add(newTree);
+        }
     }
 
     public class CompilationEndInjectionContext
     {
-        private CodeInjectionProcessor _processor;
+        private CompilationStartInjectionContext _startContext;
 
-        public Compilation Compilation { get { return _processor.Compilation; } }
-        public CancellationToken CancellationToken { get { return _processor.CancellationToken; } }
+        public Compilation Compilation { get { return _startContext.Compilation; } }
+        public CancellationToken CancellationToken { get { return _startContext.CancellationToken; } }
 
         internal CodeInjector Injector { get; set; }
 
-        internal CompilationEndInjectionContext(CodeInjectionProcessor processor)
+        internal CompilationEndInjectionContext(CompilationStartInjectionContext startContext)
         {
-            _processor = processor;
+            _startContext = startContext;
         }
 
         public void AddCompilationUnit(string name, SyntaxNode root)
         {
-            _processor.AddCompilationUnit(this.Injector, name, root);
+            _startContext.AddCompilationUnit(this.Injector, name, root);
         }
 
         public void AddCompilationUnit(string name, string text)
         {
-            _processor.AddCompilationUnit(this.Injector, name, text);
+            _startContext.AddCompilationUnit(this.Injector, name, text);
         }
 
         public void AddCompilationUnit(string name, SourceText text)
         {
-            _processor.AddCompilationUnit(this.Injector, name, text);
+            _startContext.AddCompilationUnit(this.Injector, name, text);
         }
     }
 
     public class SymbolInjectionContext
     {
-        private CodeInjectionProcessor _processor;
+        private CompilationStartInjectionContext _startContext;
 
-        public Compilation Compilation { get { return _processor.Compilation; } }
-        public CancellationToken CancellationToken { get { return _processor.CancellationToken; } }
-        public ISymbol Symbol { get { return _processor.Symbol; } }
+        public Compilation Compilation { get { return _startContext.Compilation; } }
+        public CancellationToken CancellationToken { get { return _startContext.CancellationToken; } }
 
+        public ISymbol Symbol { get; internal set; }
         internal CodeInjector Injector { get; set; }
 
-        internal SymbolInjectionContext(CodeInjectionProcessor processor)
+        internal SymbolInjectionContext(CompilationStartInjectionContext startContext)
         {
-            _processor = processor;
+            _startContext = startContext;
         }
 
         public void AddCompilationUnit(SyntaxNode root)
         {
-            _processor.AddCompilationUnit(this.Injector, this.Symbol.Name, root);
+            _startContext.AddCompilationUnit(this.Injector, this.Symbol.Name, root);
         }
 
         public void AddCompilationUnit(string text)
         {
-            _processor.AddCompilationUnit(this.Injector, this.Symbol.Name, text);
+            _startContext.AddCompilationUnit(this.Injector, this.Symbol.Name, text);
         }
 
         public void AddCompilationUnit(SourceText text)
         {
-            _processor.AddCompilationUnit(this.Injector, this.Symbol.Name, text);
+            _startContext.AddCompilationUnit(this.Injector, this.Symbol.Name, text);
         }
     }
 }
