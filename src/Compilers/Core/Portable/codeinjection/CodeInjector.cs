@@ -134,7 +134,7 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             }
 
             var symbols = new List<ITypeSymbol>();
-            GatherTypeSymbols(compilation.GlobalNamespace, symbols);
+            GatherTypeSymbols(compilation.Assembly.GlobalNamespace, symbols);
 
             var symbolContext = new SymbolInjectionContext(this);
             foreach (var sym in symbols)
@@ -285,11 +285,19 @@ namespace Microsoft.CodeAnalysis.CodeInjection
             return injector;
         }
 
+        private object gate = new object();
+
         private CodeInjector CreateInjector(Type injectorType)
         {
             var injector = (CodeInjector)Activator.CreateInstance(injectorType);
-            _globalContext.Injector = injector;
-            injector.Initialize(_globalContext);
+
+            // use lock to keep injectors from initializing in parallel
+            lock (gate)
+            {
+                _globalContext.Injector = injector;
+                injector.Initialize(_globalContext);
+            }
+
             return injector;
         }
 
@@ -381,27 +389,30 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 
         public void RegisterCompilationStartAction(Action<CompilationStartInjectionContext> action)
         {
+            var injector = this.Injector;
             _processor.AddCompilationStartAction(ctx =>
             {
-                ctx.Injector = this.Injector;
+                ctx.Injector = injector;
                 action(ctx);
             });
         }
 
         public void RegisterCompilationEndAction(Action<CompilationEndInjectionContext> action)
         {
+            var injector = this.Injector;
             _processor.AddGlobalCompilationEndAction(ctx =>
             {
-                ctx.Injector = this.Injector;
+                ctx.Injector = injector;
                 action(ctx);
             });
         }
 
         public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
         {
+            var injector = this.Injector;
             _processor.AddGlobalSymbolAction(ctx =>
             {
-                ctx.Injector = this.Injector;
+                ctx.Injector = injector;
                 action(ctx);
             });
         }
@@ -423,18 +434,20 @@ namespace Microsoft.CodeAnalysis.CodeInjection
 
         public void RegisterSymbolAction(Action<SymbolInjectionContext> action)
         {
+            var injector = this.Injector;
             _processor.AddSymbolAction(ctx =>
             {
-                ctx.Injector = this.Injector;
+                ctx.Injector = injector;
                 action(ctx);
             });
         }
 
         public void RegisterCompilationEndAction(Action<CompilationEndInjectionContext> action)
         {
+            var injector = this.Injector;
             _processor.AddCompilationEndAction(ctx =>
             {
-                ctx.Injector = this.Injector;
+                ctx.Injector = injector;
                 action(ctx);
             });
         }
