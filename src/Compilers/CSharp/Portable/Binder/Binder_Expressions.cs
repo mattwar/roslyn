@@ -874,12 +874,9 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             if (lookupResult.Kind == LookupResultKind.Empty)
             {
-                this.LookupSymbolsWithFallback(lookupResult, node.Identifier.ValueText, arity: arity, useSiteDiagnostics: ref useSiteDiagnostics, options: options);
+                this.LookupSymbolsWithFallback(lookupResult, name, arity: arity, useSiteDiagnostics: ref useSiteDiagnostics, options: options);
                 diagnostics.Add(node, useSiteDiagnostics);
             }
-
-            this.LookupSymbolsWithFallback(lookupResult, name, arity: arity, useSiteDiagnostics: ref useSiteDiagnostics, options: options);
-            diagnostics.Add(node, useSiteDiagnostics);
 
             if (lookupResult.Kind != LookupResultKind.Empty)
             {
