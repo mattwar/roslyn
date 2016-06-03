@@ -137,7 +137,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
 
         public void RegisterWorkspaceHost(IVisualStudioWorkspaceHost host)
         {
-            if (_workspaceHosts.Any(hostState => hostState.Host == host))
+            if (_workspaceHosts.Any(hostState => hostState.Matches(host)))
             {
                 throw new ArgumentException("The workspace host is already registered.", nameof(host));
             }
@@ -147,7 +147,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
 
         public void StartSendingEventsToWorkspaceHost(IVisualStudioWorkspaceHost host)
         {
-            var hostData = _workspaceHosts.Find(s => s.Host == host);
+            var hostData = _workspaceHosts.Find(s => s.Matches(host));
             if (hostData == null)
             {
                 throw new ArgumentException("The workspace host not registered", nameof(host));
@@ -300,7 +300,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             return id;
         }
 
-        internal void NotifyWorkspaceHosts(Action<IVisualStudioWorkspaceHost> action)
+        internal void NotifyWorkspaceHosts(Action<WorkspaceHostState> action)
         {
             // We do not want to allow message pumping/reentrancy when processing project system changes.
             using (Dispatcher.CurrentDispatcher.DisableProcessing())
@@ -309,7 +309,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
                 {
                     if (workspaceHost.HostReadyForEvents)
                     {
-                        action(workspaceHost.Host);
+                        action(workspaceHost);
                     }
                 }
             }

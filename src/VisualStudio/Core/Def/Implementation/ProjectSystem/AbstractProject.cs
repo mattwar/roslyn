@@ -163,6 +163,11 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             SetIsWebsite(hierarchy);
         }
 
+        public IReadOnlyCollection<ProjectReference> ProjectReferences
+        {
+            get { return _projectReferences; }
+        }
+
         private static string GetProjectType(IVsHierarchy hierarchy)
         {
             var aggregatableProject = hierarchy as IVsAggregatableProject;

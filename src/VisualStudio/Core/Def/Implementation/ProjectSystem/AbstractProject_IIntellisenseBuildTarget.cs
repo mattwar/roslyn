@@ -30,7 +30,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             if (_pushingChangesToWorkspaceHosts)
             {
                 // set workspace reference info
-                ProjectTracker.NotifyWorkspaceHosts(host => (host as IVisualStudioWorkspaceHost2)?.OnHasAllInformation(Id, succeeded));
+                ProjectTracker.NotifyWorkspaceHosts(host => host.OnHasAllInformation(Id, succeeded));
             }
         }
 
