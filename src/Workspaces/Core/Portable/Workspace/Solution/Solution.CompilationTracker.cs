@@ -299,7 +299,7 @@ namespace Microsoft.CodeAnalysis
                 return state.FinalCompilation.TryGetValue(out compilation) && compilation != null;
             }
 
-            public Task<Compilation> GetCompilationAsync(Solution solution, CancellationToken cancellationToken)
+            public Task<Compilation> GetCompilationAsync(Solution solution, ImmutableArray<ProjectId> referenceIds, CancellationToken cancellationToken)
             {
                 Compilation compilation;
                 if (this.TryGetCompilation(out compilation))
@@ -312,7 +312,7 @@ namespace Microsoft.CodeAnalysis
                 }
                 else
                 {
-                    return GetOrBuildCompilationInfoAsync(solution, lockGate: true, cancellationToken: cancellationToken)
+                    return GetOrBuildCompilationInfoAsync(solution, referenceIds, lockGate: true, cancellationToken: cancellationToken)
                         .ContinueWith(t => t.Result.Compilation, cancellationToken, TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
                 }
             }
@@ -379,6 +379,7 @@ namespace Microsoft.CodeAnalysis
 
             private async Task<CompilationInfo> GetOrBuildCompilationInfoAsync(
                 Solution solution,
+                ImmutableArray<ProjectId> referenceIds,
                 bool lockGate,
                 CancellationToken cancellationToken)
             {
@@ -404,12 +405,12 @@ namespace Microsoft.CodeAnalysis
                         {
                             using (await _buildLock.DisposableWaitAsync(cancellationToken).ConfigureAwait(false))
                             {
-                                return await BuildCompilationInfoAsync(solution, cancellationToken).ConfigureAwait(false);
+                                return await BuildCompilationInfoAsync(solution, referenceIds, cancellationToken).ConfigureAwait(false);
                             }
                         }
                         else
                         {
-                            return await BuildCompilationInfoAsync(solution, cancellationToken).ConfigureAwait(false);
+                            return await BuildCompilationInfoAsync(solution, referenceIds, cancellationToken).ConfigureAwait(false);
                         }
                     }
                 }
@@ -425,6 +426,7 @@ namespace Microsoft.CodeAnalysis
             /// </summary>
             private Task<CompilationInfo> BuildCompilationInfoAsync(
                 Solution solution,
+                ImmutableArray<ProjectId> shallowReferenceProjects,
                 CancellationToken cancellationToken)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -447,21 +449,21 @@ namespace Microsoft.CodeAnalysis
                     if (state.DeclarationOnlyCompilation != null)
                     {
                         // we have declaration only compilation. build final one from it.
-                        return FinalizeCompilationAsync(solution, state.DeclarationOnlyCompilation, cancellationToken);
+                        return FinalizeCompilationAsync(solution, state.DeclarationOnlyCompilation, shallowReferenceProjects, cancellationToken);
                     }
 
                     // We've got nothing.  Build it from scratch :(
-                    return BuildCompilationInfoFromScratchAsync(solution, state, cancellationToken);
+                    return BuildCompilationInfoFromScratchAsync(solution, state, shallowReferenceProjects, cancellationToken);
                 }
                 else if (state is FullDeclarationState)
                 {
                     // We have a declaration compilation, use it to reconstruct the final compilation
-                    return this.FinalizeCompilationAsync(solution, compilation, cancellationToken);
+                    return this.FinalizeCompilationAsync(solution, compilation, shallowReferenceProjects, cancellationToken);
                 }
                 else if (state is InProgressState)
                 {
                     // We have an in progress compilation.  Build off of that.
-                    return BuildFinalStateFromInProgressStateAsync(solution, state as InProgressState, compilation, cancellationToken);
+                    return BuildFinalStateFromInProgressStateAsync(solution, state as InProgressState, compilation, shallowReferenceProjects, cancellationToken);
                 }
                 else
                 {
@@ -470,12 +472,12 @@ namespace Microsoft.CodeAnalysis
             }
 
             private async Task<CompilationInfo> BuildCompilationInfoFromScratchAsync(
-                Solution solution, State state, CancellationToken cancellationToken)
+                Solution solution, State state, ImmutableArray<ProjectId> shallowReferenceProjects, CancellationToken cancellationToken)
             {
                 try
                 {
                     var compilation = await BuildDeclarationCompilationFromScratchAsync(solution, cancellationToken).ConfigureAwait(false);
-                    return await FinalizeCompilationAsync(solution, compilation, cancellationToken).ConfigureAwait(false);
+                    return await FinalizeCompilationAsync(solution, compilation, shallowReferenceProjects, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception e) when (FatalError.ReportUnlessCanceled(e))
                 {
@@ -525,12 +527,12 @@ namespace Microsoft.CodeAnalysis
             }
 
             private async Task<CompilationInfo> BuildFinalStateFromInProgressStateAsync(
-                Solution solution, InProgressState state, Compilation inProgressCompilation, CancellationToken cancellationToken)
+                Solution solution, InProgressState state, Compilation inProgressCompilation, ImmutableArray<ProjectId> shallowReferenceProjects, CancellationToken cancellationToken)
             {
                 try
                 {
                     var compilation = await BuildDeclarationCompilationFromInProgressAsync(solution, state, inProgressCompilation, cancellationToken).ConfigureAwait(false);
-                    return await FinalizeCompilationAsync(solution, compilation, cancellationToken).ConfigureAwait(false);
+                    return await FinalizeCompilationAsync(solution, compilation, shallowReferenceProjects, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception e) when (FatalError.ReportUnlessCanceled(e))
                 {
@@ -587,6 +589,7 @@ namespace Microsoft.CodeAnalysis
             private async Task<CompilationInfo> FinalizeCompilationAsync(
                 Solution solution,
                 Compilation compilation,
+                ImmutableArray<ProjectId> shallowReferenceProjects,
                 CancellationToken cancellationToken)
             {
                 try
@@ -600,6 +603,12 @@ namespace Microsoft.CodeAnalysis
 
                     foreach (var projectReference in this.ProjectState.ProjectReferences)
                     {
+                        // only include allowed references
+                        if (shallowReferenceProjects.Length > 0 && !shallowReferenceProjects.Contains(projectReference.ProjectId))
+                        {
+                            continue;
+                        }
+
                         var referencedProject = solution.GetProject(projectReference.ProjectId);
 
                         // Even though we're creating a final compilation (vs. an in progress compilation),
@@ -622,7 +631,7 @@ namespace Microsoft.CodeAnalysis
                             else
                             {
                                 var metadataReference = await solution.GetMetadataReferenceAsync(
-                                    projectReference, this.ProjectState, cancellationToken).ConfigureAwait(false);
+                                    projectReference, this.ProjectState, shallowReferenceProjects, cancellationToken).ConfigureAwait(false);
 
                                 // A reference can fail to be created if a skeleton assembly could not be constructed.
                                 if (metadataReference != null)
@@ -635,12 +644,18 @@ namespace Microsoft.CodeAnalysis
                                     hasSuccessfullyLoaded = false;
                                 }
                             }
+
+                            if (hasSuccessfullyLoaded)
+                            {
+                                hasSuccessfullyLoaded |= await solution.HasSuccessfullyLoadedAsync(referencedProject, cancellationToken).ConfigureAwait(false);
+                            }
                         }
                     }
 
                     compilation = UpdateCompilationWithNewReferencesAndRecordAssemblySymbols(compilation, newReferences, metadataReferenceToProjectId);
 
-                    bool hasSuccessfullyLoadedTransitively = !HasMissingReferences(compilation, this.ProjectState.MetadataReferences) && await ComputeHasSuccessfullyLoadedTransitivelyAsync(solution, hasSuccessfullyLoaded, cancellationToken).ConfigureAwait(false);
+                    //bool hasSuccessfullyLoadedTransitively = !HasMissingReferences(compilation, this.ProjectState.MetadataReferences) && await ComputeHasSuccessfullyLoadedTransitivelyAsync(solution, hasSuccessfullyLoaded, cancellationToken).ConfigureAwait(false);
+                    bool hasSuccessfullyLoadedTransitively = hasSuccessfullyLoaded && !HasMissingReferences(compilation, this.ProjectState.MetadataReferences);
 
                     this.WriteState(new FinalState(State.CreateValueSource(compilation, solution.Services), hasSuccessfullyLoadedTransitively), solution);
 
@@ -722,36 +737,61 @@ namespace Microsoft.CodeAnalysis
                 Solution solution,
                 ProjectState fromProject,
                 ProjectReference projectReference,
+                ImmutableArray<ProjectId> shallowReferenceProjects,
                 CancellationToken cancellationToken)
             {
                 try
                 {
-                    Compilation compilation;
+                    var mode = solution.Workspace.ProjectReferenceMode;
+                    if (mode == ProjectReferenceMode.DeepCompilation || mode == ProjectReferenceMode.ShallowCompilation)
+                    {
+                        Compilation compilation;
 
-                    // if we already have the compilation and its right kind then use it.
-                    if (this.ProjectState.LanguageServices == fromProject.LanguageServices
-                        && this.TryGetCompilation(out compilation))
-                    {
-                        return compilation.ToMetadataReference(projectReference.Aliases, projectReference.EmbedInteropTypes);
-                    }
+                        // if we already have the compilation and its right kind then use it.
+                        if (this.ProjectState.LanguageServices == fromProject.LanguageServices
+                            && this.TryGetCompilation(out compilation))
+                        {
+                            return compilation.ToMetadataReference(projectReference.Aliases, projectReference.EmbedInteropTypes);
+                        }
 
-                    // If same language then we can wrap the other project's compilation into a compilation reference
-                    if (this.ProjectState.LanguageServices == fromProject.LanguageServices)
-                    {
-                        // otherwise, base it off the compilation by building it first.
-                        compilation = await this.GetCompilationAsync(solution, cancellationToken).ConfigureAwait(false);
-                        return compilation.ToMetadataReference(projectReference.Aliases, projectReference.EmbedInteropTypes);
+                        // If same language then we can wrap the other project's compilation into a compilation reference
+                        if (this.ProjectState.LanguageServices == fromProject.LanguageServices)
+                        {
+                            if (mode == ProjectReferenceMode.ShallowCompilation && shallowReferenceProjects.Length == 0)
+                            {
+                                shallowReferenceProjects = fromProject.ProjectReferences.Select(pr => pr.ProjectId).ToImmutableArray();
+                            }
+
+                            // otherwise, base it off the compilation by building it first.
+                            compilation = await this.GetCompilationAsync(solution, shallowReferenceProjects, cancellationToken).ConfigureAwait(false);
+                            return compilation.ToMetadataReference(projectReference.Aliases, projectReference.EmbedInteropTypes);
+                        }
+                        else
+                        {
+                            // otherwise get a metadata only image reference that is built by emitting the metadata from the referenced project's compilation and re-importing it.
+                            return await this.GetMetadataOnlyImageReferenceAsync(solution, projectReference, cancellationToken).ConfigureAwait(false);
+                        }
                     }
-                    else
+                    else if (mode == ProjectReferenceMode.Metadata)
                     {
-                        // otherwise get a metadata only image reference that is built by emitting the metadata from the referenced project's compilation and re-importing it.
-                        return await this.GetMetadataOnlyImageReferenceAsync(solution, projectReference, cancellationToken).ConfigureAwait(false);
+                        // always compose a metadata image
+                        var imageRef = await this.GetMetadataOnlyImageReferenceAsync(solution, projectReference, cancellationToken).ConfigureAwait(false);
+                        if (imageRef == null && this.ProjectState.LanguageServices == fromProject.LanguageServices)
+                        {
+                            // if that failed and the language is the same simulate a metadata reference from this compilation directly
+                            var compilation = await this.GetCompilationAsync(solution, shallowReferenceProjects, cancellationToken).ConfigureAwait(false);
+                            return compilation.ToMetadataReference(projectReference.Aliases, projectReference.EmbedInteropTypes);
+                        }
+
+                        return imageRef;
                     }
                 }
                 catch (Exception e) when (FatalError.ReportUnlessCanceled(e))
                 {
                     throw ExceptionUtilities.Unreachable;
                 }
+
+                return null;
             }
 
             /// <summary>
@@ -804,7 +844,7 @@ namespace Microsoft.CodeAnalysis
                                 solution.Workspace.LogTestMessage($"Build lock taken for {ProjectState.Id}...");
 
                                 // okay, we still don't have one. bring the compilation to final state since we are going to use it to create skeleton assembly
-                                var compilationInfo = await this.GetOrBuildCompilationInfoAsync(solution, lockGate: false, cancellationToken: cancellationToken).ConfigureAwait(false);
+                                var compilationInfo = await this.GetOrBuildCompilationInfoAsync(solution, ImmutableArray<ProjectId>.Empty, lockGate: false, cancellationToken: cancellationToken).ConfigureAwait(false);
                                 reference = MetadataOnlyReference.GetOrBuildReference(solution, projectReference, compilationInfo.Compilation, version, cancellationToken);
                             }
                         }
@@ -865,12 +905,12 @@ namespace Microsoft.CodeAnalysis
                 }
                 else
                 {
-                    return GetOrBuildCompilationInfoAsync(solution, lockGate: true, cancellationToken: cancellationToken)
+                    return GetOrBuildCompilationInfoAsync(solution, ImmutableArray<ProjectId>.Empty, lockGate: true, cancellationToken: cancellationToken)
                         .ContinueWith(t => t.Result.HasSuccessfullyLoadedTransitively, cancellationToken, TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
                 }
             }
 
-            #region Versions
+#region Versions
 
             // Dependent Versions are stored on compilation tracker so they are more likely to survive when unrelated solution branching occurs.
 
@@ -938,7 +978,7 @@ namespace Microsoft.CodeAnalysis
 
                 return version;
             }
-            #endregion
+#endregion
         }
     }
 }

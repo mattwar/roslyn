@@ -398,7 +398,10 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.Completion
             CompletionProvider = CreateCompletionProvider();
 
             await VerifyItemWithMetadataReferenceAsync(markup, referencedCode, item, expectedSymbolsMetadataReference, sourceLanguage, referencedLanguage, hideAdvancedMembers);
+
+#if true
             await VerifyItemWithProjectReferenceAsync(markup, referencedCode, item, expectedSymbolsSameSolution, sourceLanguage, referencedLanguage, hideAdvancedMembers);
+#endif
 
             // If the source and referenced languages are different, then they cannot be in the same project
             if (sourceLanguage == referencedLanguage)

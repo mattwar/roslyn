@@ -292,6 +292,11 @@ namespace Microsoft.CodeAnalysis
             }
         }
 
+        internal virtual ProjectReferenceMode ProjectReferenceMode
+        {
+            get { return ProjectReferenceMode.ShallowCompilation; }
+        }
+
         #region Host API
         /// <summary>
         /// Call this method to respond to a solution being opened in the host environment.

@@ -278,7 +278,9 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.SignatureHelp
             }
 
             await TestSignatureHelpWithMetadataReferenceHelperAsync(markup, referencedCode, expectedOrderedItemsMetadataReference, sourceLanguage, referencedLanguage, hideAdvancedMembers);
+#if true
             await TestSignatureHelpWithProjectReferenceHelperAsync(markup, referencedCode, expectedOrderedItemsSameSolution, sourceLanguage, referencedLanguage, hideAdvancedMembers);
+#endif
 
             // Multi-language projects are not supported.
             if (sourceLanguage == referencedLanguage)

@@ -173,7 +173,7 @@ Inner i;
 ");
 
             var actualSymbol = (await SymbolFinder.FindDeclarationsAsync(solution.GetProject(submission1Id), "Inner", ignoreCase: false)).SingleOrDefault();
-            var expectedSymbol = (await solution.GetProject(submission0Id).GetCompilationAsync()).GlobalNamespace.GetMembers("Outer").SingleOrDefault().GetMembers("Inner").SingleOrDefault();
+            var expectedSymbol = (await solution.GetProject(submission1Id).GetCompilationAsync()).GlobalNamespace.GetMembers("Outer").SingleOrDefault().GetMembers("Inner").SingleOrDefault();
             Assert.Equal(expectedSymbol, actualSymbol);
         }
 

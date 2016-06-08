@@ -185,6 +185,7 @@ namespace Microsoft.CodeAnalysis
                     MetadataReference metadataReference;
                     if (!_metadataReferences.TryGetValue(key, out weakMetadata) || !weakMetadata.TryGetTarget(out metadataReference))
                     {
+#if false
                         // here we give out strong reference to compilation. so there is possibility that we end up making 2 compilations for same project alive.
                         // one for final compilation and one for declaration only compilation. but the final compilation will be eventually kicked out from compilation cache
                         // if there is no activity on the project. or the declaration compilation will go away if the project that depends on the reference doesn't have any
@@ -194,7 +195,11 @@ namespace Microsoft.CodeAnalysis
                         // there is one case where we could have 2 compilations for same project alive. if a user opens a file that requires a skeleton assembly when the skeleton
                         // assembly project didn't reach the final stage yet and then the user opens another document that is part of the skeleton assembly project 
                         // and then never change it. declaration compilation will be alive by skeleton assembly and final compilation will be alive by background compiler.
-                        metadataReference = _image.CreateReference(aliases, embedInteropTypes, new DeferredDocumentationProvider(compilation));
+#endif
+
+                        // referenced metadata is not needed.. We only need to find the corresponding symbol and pull its doc comments out.
+                        var compilationWithoutRefs = compilation.WithReferences();
+                        metadataReference = _image.CreateReference(aliases, embedInteropTypes, new DeferredDocumentationProvider(compilationWithoutRefs));
                         weakMetadata = new WeakReference<MetadataReference>(metadataReference);
                         _metadataReferences[key] = weakMetadata;
                     }

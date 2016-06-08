@@ -637,9 +637,7 @@ namespace Microsoft.CodeAnalysis.Shared.Extensions
             }
 
             // Ignore browsability limiting attributes if the symbol is declared in source.
-            // Check all locations since some of VB's embedded My symbols are declared in 
-            // both source and the MyTemplateLocation.
-            if (symbol.Locations.All(loc => loc.IsInSource))
+            if (symbol.IsFromSource(compilation))
             {
                 // The HideModuleNameAttribute still applies to Modules defined in source
                 return !IsBrowsingProhibitedByHideModuleNameAttribute(symbol, compilation, hideModuleNameAttribute);
@@ -654,6 +652,28 @@ namespace Microsoft.CodeAnalysis.Shared.Extensions
                 typeLibFuncAttributeConstructors,
                 typeLibVarAttributeConstructors,
                 hideModuleNameAttribute);
+        }
+
+        public static bool IsFromSource(this ISymbol symbol, Compilation compilation)
+        {
+            // Check all locations since some of VB's embedded My symbols are declared in 
+            // both source and the MyTemplateLocation.
+            if (symbol.Locations.All(loc => loc.IsInSource))
+            {
+                return true;
+            }
+
+            var assembly = symbol as IAssemblySymbol ?? symbol.ContainingAssembly;
+            if (assembly != null && assembly.Language == compilation.Language)
+            {
+                var mref = compilation.GetMetadataReference(assembly);
+                if (mref != null)
+                {
+                    return MetadataOnlyImage.IsImageFromCompilation(mref);
+                }
+            }
+
+            return false;
         }
 
         private static bool IsBrowsingProhibited(

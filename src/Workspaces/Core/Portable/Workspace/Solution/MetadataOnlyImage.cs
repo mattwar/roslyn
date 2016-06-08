@@ -78,6 +78,12 @@ namespace Microsoft.CodeAnalysis
             return Empty;
         }
 
+        internal static bool IsImageFromCompilation(MetadataReference reference)
+        {
+            Stream tmp;
+            return s_lifetime.TryGetValue(reference, out tmp) && tmp != null;
+        }
+
         private static readonly ConditionalWeakTable<MetadataReference, Stream> s_lifetime = new ConditionalWeakTable<MetadataReference, Stream>();
 
         public MetadataReference CreateReference(ImmutableArray<string> aliases, bool embedInteropTypes, DocumentationProvider documentationProvider)

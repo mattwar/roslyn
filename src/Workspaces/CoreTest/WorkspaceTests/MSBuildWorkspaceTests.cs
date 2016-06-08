@@ -216,12 +216,14 @@ namespace Microsoft.CodeAnalysis.UnitTests
             Assert.True(projects[0].ProjectReferences.Any(r => r.ProjectId == projects[1].Id) ||
                         projects[1].ProjectReferences.Any(r => r.ProjectId == projects[0].Id));
 
+#if false
             var compilation1 = projects[0].GetCompilationAsync().Result;
             var compilation2 = projects[1].GetCompilationAsync().Result;
 
             // Exactly one of them should have a compilation to the other. Which one it is, is unspecced
             Assert.True(compilation1.References.OfType<CompilationReference>().Any(c => c.Compilation == compilation2) ||
                         compilation2.References.OfType<CompilationReference>().Any(c => c.Compilation == compilation1));
+#endif
         }
 
         [Fact, Trait(Traits.Feature, Traits.Features.Workspace)]
