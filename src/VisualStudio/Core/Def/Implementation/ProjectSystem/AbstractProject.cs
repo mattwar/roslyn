@@ -99,6 +99,14 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
         private static readonly EventHandler<bool> s_additionalDocumentClosingEventHandler = OnAdditionalDocumentClosing;
         private static readonly EventHandler s_additionalDocumentUpdatedOnDiskEventHandler = OnAdditionalDocumentUpdatedOnDisk;
 
+        private readonly DiagnosticDescriptor _errorReadingRulesetRule = new DiagnosticDescriptor(
+            id: IDEDiagnosticIds.ErrorReadingRulesetId,
+            title: ServicesVSResources.ERR_CantReadRulesetFileTitle,
+            messageFormat: ServicesVSResources.ERR_CantReadRulesetFileMessage,
+            category: FeaturesResources.ErrorCategory,
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
+
         public AbstractProject(
             VisualStudioProjectTracker projectTracker,
             Func<ProjectId, IVsReportExternalErrors> reportExternalErrorCreatorOpt,
@@ -385,6 +393,44 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             return document;
         }
 
+        public void UpdateGeneratedDocuments(ImmutableArray<DocumentInfo> documentsRemoved, ImmutableArray<DocumentInfo> documentsAdded)
+        {
+            foreach (var info in documentsRemoved)
+            {
+                RemoveGeneratedDocument(info.Id);
+            }
+            foreach (var info in documentsAdded)
+            {
+                AddGeneratedDocument(info.Id, info.FilePath);
+            }
+        }
+
+        private IVisualStudioHostDocument AddGeneratedDocument(DocumentId id, string filePath)
+        {
+            IVisualStudioHostDocument document;
+            using (this.DocumentProvider.ProvideDocumentIdHint(filePath, id))
+            {
+                document = this.DocumentProvider.TryGetDocumentForFile(
+                    this,
+                    (uint)VSConstants.VSITEMID.Nil,
+                    filePath,
+                    SourceCodeKind.Regular,
+                    isGenerated: true,
+                    canUseTextBuffer: _ => true);
+            }
+            AddGeneratedDocument(document, isCurrentContext: LinkedFileUtilities.IsCurrentContextHierarchy(document, RunningDocumentTable));
+            return document;
+        }
+
+        private void RemoveGeneratedDocument(DocumentId id)
+        {
+            IVisualStudioHostDocument doc;
+            if (_documents.TryGetValue(id, out doc))
+            {
+                RemoveGeneratedDocument(doc);
+            }
+        }
+
         public bool HasMetadataReference(string filename)
         {
             return _metadataReferences.Any(r => StringComparer.OrdinalIgnoreCase.Equals(r.FilePath, filename));
@@ -573,10 +619,17 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
 
         private void OnAnalyzerChanged(object sender, EventArgs e)
         {
-            VisualStudioAnalyzer analyzer = (VisualStudioAnalyzer)sender;
+            // Postpone handler's actions to prevent deadlock. This AnalyzeChanged event can
+            // be invoked while the FileChangeService lock is held, and VisualStudioAnalyzer's 
+            // efforts to listen to file changes can lead to a deadlock situation.
+            // Postponing the VisualStudioAnalyzer operations gives this thread the opportunity
+            // to release the lock.
+            Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => {
+                VisualStudioAnalyzer analyzer = (VisualStudioAnalyzer)sender;
 
-            RemoveAnalyzerAssembly(analyzer.FullPath);
-            AddAnalyzerAssembly(analyzer.FullPath);
+                RemoveAnalyzerAssembly(analyzer.FullPath);
+                AddAnalyzerAssembly(analyzer.FullPath);                
+            }));
         }
 
         // Internal for unit testing
@@ -746,7 +799,13 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
 
         protected void AddFile(string filename, SourceCodeKind sourceCodeKind, uint itemId, Func<ITextBuffer, bool> canUseTextBuffer)
         {
-            var document = this.DocumentProvider.TryGetDocumentForFile(this, itemId, filePath: filename, sourceCodeKind: sourceCodeKind, canUseTextBuffer: canUseTextBuffer);
+            var document = this.DocumentProvider.TryGetDocumentForFile(
+                this,
+                itemId,
+                filePath: filename,
+                sourceCodeKind: sourceCodeKind,
+                isGenerated: false,
+                canUseTextBuffer: canUseTextBuffer);
 
             if (document == null)
             {
@@ -760,7 +819,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
 
             AddDocument(
                 document,
-                isCurrentContext: document.Project.Hierarchy == LinkedFileUtilities.GetContextHierarchy(document, RunningDocumentTable));
+                isCurrentContext: LinkedFileUtilities.IsCurrentContextHierarchy(document, RunningDocumentTable));
         }
 
         protected void AddUntrackedFile(string filename)
@@ -862,6 +921,53 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             _documentMonikers.Remove(document.Key.Moniker);
 
             UninitializeAdditionalDocument(document);
+        }
+
+        internal void UpdateGeneratedFiles()
+        {
+            this.ProjectTracker.NotifyWorkspaceHosts(host => (host as IVisualStudioWorkspaceHost2)?.UpdateGeneratedDocumentsIfNecessary(_id));
+        }
+
+        private void AddGeneratedDocument(IVisualStudioHostDocument document, bool isCurrentContext)
+        {
+            // We do not want to allow message pumping/reentrancy when processing project system changes.
+            using (Dispatcher.CurrentDispatcher.DisableProcessing())
+            {
+                _documents.Add(document.Id, document);
+                _documentMonikers.Add(document.Key.Moniker, document);
+
+                if (_pushingChangesToWorkspaceHosts)
+                {
+                    if (document.IsOpen)
+                    {
+                        this.ProjectTracker.NotifyWorkspaceHosts(host => host.OnDocumentOpened(document.Id, document.GetOpenTextBuffer(), isCurrentContext));
+                    }
+                }
+
+                document.Opened += s_documentOpenedEventHandler;
+                document.Closing += s_documentClosingEventHandler;
+                document.UpdatedOnDisk += s_documentUpdatedOnDiskEventHandler;
+
+                DocumentProvider.NotifyDocumentRegisteredToProject(document);
+
+                if (!_pushingChangesToWorkspaceHosts && document.IsOpen)
+                {
+                    StartPushingToWorkspaceAndNotifyOfOpenDocuments();
+                }
+            }
+        }
+
+        private void RemoveGeneratedDocument(IVisualStudioHostDocument document)
+        {
+            // We do not want to allow message pumping/reentrancy when processing project system changes.
+            using (Dispatcher.CurrentDispatcher.DisableProcessing())
+            {
+                _documents.Remove(document.Id);
+                _documentMonikers.Remove(document.Key.Moniker);
+
+                UninitializeDocument(document);
+                OnDocumentRemoved(document.Key.Moniker);
+            }
         }
 
         public virtual void Disconnect()
@@ -1166,20 +1272,12 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             }
             else
             {
-                string message = string.Format(ServicesVSResources.ERR_CantReadRulesetFileMessage, ruleSetFile.FilePath, ruleSetFile.GetException().Message);
-                var data = new DiagnosticData(
-                    id: IDEDiagnosticIds.ErrorReadingRulesetId,
-                    category: FeaturesResources.ErrorCategory,
-                    message: message,
-                    enuMessageForBingSearch: ServicesVSResources.ERR_CantReadRulesetFileMessage,
-                    severity: DiagnosticSeverity.Error,
-                    isEnabledByDefault: true,
-                    warningLevel: 0,
-                    workspace: this.Workspace,
-                    projectId: this.Id,
-                    title: ServicesVSResources.ERR_CantReadRulesetFileTitle);
-
-                this.HostDiagnosticUpdateSource.UpdateDiagnosticsForProject(this.Id, RuleSetErrorId, SpecializedCollections.SingletonEnumerable(data));
+                var messageArguments = new string[] { ruleSetFile.FilePath, ruleSetFile.GetException().Message };
+                DiagnosticData diagnostic;
+                if (DiagnosticData.TryCreate(_errorReadingRulesetRule, messageArguments, this.Id, this.Workspace, out diagnostic))
+                {
+                    this.HostDiagnosticUpdateSource.UpdateDiagnosticsForProject(this.Id, RuleSetErrorId, SpecializedCollections.SingletonEnumerable(diagnostic));
+                }
             }
         }
 

@@ -2,6 +2,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -16,11 +18,13 @@ using Microsoft.CodeAnalysis.Options;
 using Microsoft.CodeAnalysis.Packaging;
 using Microsoft.CodeAnalysis.Shared.Utilities;
 using Microsoft.CodeAnalysis.SolutionCrawler;
+using Microsoft.CodeAnalysis.SymbolSearch;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Feedback.Interop;
 using Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem.Extensions;
 using Microsoft.VisualStudio.LanguageServices.Packaging;
+using Microsoft.VisualStudio.LanguageServices.SymbolSearch;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Text;
@@ -53,9 +57,6 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
         private ISolutionCrawlerRegistrationService _registrationService;
 
         private readonly ForegroundThreadAffinitizedObject _foregroundObject = new ForegroundThreadAffinitizedObject();
-
-        private PackageInstallerService _packageInstallerService;
-        private PackageSearchService _packageSearchService;
 
         public VisualStudioWorkspaceImpl(
             SVsServiceProvider serviceProvider,
@@ -109,11 +110,6 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
 
             // Ensure the options factory services are initialized on the UI thread
             this.Services.GetService<IOptionService>();
-
-            // Ensure the nuget package services are initialized on the UI thread.
-            _packageSearchService = this.Services.GetService<IPackageSearchService>() as PackageSearchService;
-            _packageInstallerService = (PackageInstallerService)this.Services.GetService<IPackageInstallerService>();
-            _packageInstallerService.Connect(this);
         }
 
         /// <summary>NOTE: Call only from derived class constructor</summary>
@@ -375,8 +371,8 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             string filePath = GetMetadataPath(metadataReference);
             if (filePath != null)
             {
-                VSLangProj.VSProject vsProject = (VSLangProj.VSProject)project.Object;
-                VSLangProj.Reference reference = vsProject.References.Find(filePath);
+                VSProject vsProject = (VSProject)project.Object;
+                Reference reference = vsProject.References.Find(filePath);
                 if (reference != null)
                 {
                     reference.Remove();
@@ -406,7 +402,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             EnvDTE.Project refProject;
             GetProjectData(projectReference.ProjectId, out refHostProject, out refHierarchy, out refProject);
 
-            VSLangProj.VSProject vsProject = (VSLangProj.VSProject)project.Object;
+            var vsProject = (VSProject)project.Object;
             vsProject.References.AddProject(refProject);
         }
 
@@ -432,8 +428,8 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             EnvDTE.Project refProject;
             GetProjectData(projectReference.ProjectId, out refHostProject, out refHierarchy, out refProject);
 
-            VSLangProj.VSProject vsProject = (VSLangProj.VSProject)project.Object;
-            foreach (VSLangProj.Reference reference in vsProject.References)
+            var vsProject = (VSProject)project.Object;
+            foreach (Reference reference in vsProject.References)
             {
                 if (reference.SourceProject == refProject)
                 {
@@ -450,6 +446,14 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
         protected override void ApplyAdditionalDocumentAdded(DocumentInfo info, SourceText text)
         {
             AddDocumentCore(info, text, isAdditionalDocument: true);
+        }
+
+        protected override void UpdateGeneratedDocuments(ProjectId projectId, ImmutableArray<DocumentInfo> documentsRemoved, ImmutableArray<DocumentInfo> documentsAdded)
+        {
+            Debug.Assert(documentsRemoved.All(d => d.Id.ProjectId == projectId));
+            Debug.Assert(documentsAdded.All(d => d.Id.ProjectId == projectId));
+            var project = GetHostProject(projectId);
+            project.UpdateGeneratedDocuments(documentsRemoved, documentsAdded);
         }
 
         private void AddDocumentCore(DocumentInfo info, SourceText initialText, bool isAdditionalDocument)
@@ -1009,9 +1013,6 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
 
         protected override void Dispose(bool finalize)
         {
-            _packageInstallerService?.Disconnect(this);
-            _packageSearchService?.Dispose();
-
             // workspace is going away. unregister this workspace from work coordinator
             StopSolutionCrawler();
 
@@ -1071,6 +1072,16 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             where TInterface : class
         {
             return this.ServiceProvider.GetService(typeof(TService)) as TInterface;
+        }
+
+        public object GetVsService(Type serviceType)
+        {
+            return ServiceProvider.GetService(serviceType);
+        }
+
+        public DTE GetVsDte()
+        {
+            return GetVsService<SDTE, DTE>();
         }
 
         internal override bool CanAddProjectReference(ProjectId referencingProject, ProjectId referencedProject)
@@ -1161,7 +1172,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
         {
             private readonly VisualStudioWorkspaceImpl _workspace;
 
-            private Dictionary<DocumentId, uint> _documentIdToHierarchyEventsCookieMap = new Dictionary<DocumentId, uint>();
+            private readonly Dictionary<DocumentId, uint> _documentIdToHierarchyEventsCookieMap = new Dictionary<DocumentId, uint>();
 
             public VisualStudioWorkspaceHost(VisualStudioWorkspaceImpl workspace)
             {
@@ -1368,14 +1379,14 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
                 _workspace.OnAnalyzerReferenceRemoved(projectId, analyzerReference);
             }
 
-            void IVisualStudioWorkspaceHost.OnAdditionalDocumentAdded(DocumentInfo additionalDocumentInfo)
+            void IVisualStudioWorkspaceHost.OnAdditionalDocumentAdded(DocumentInfo documentInfo)
             {
-                _workspace.OnAdditionalDocumentAdded(additionalDocumentInfo);
+                _workspace.OnAdditionalDocumentAdded(documentInfo);
             }
 
-            void IVisualStudioWorkspaceHost.OnAdditionalDocumentRemoved(DocumentId additionalDocumentId)
+            void IVisualStudioWorkspaceHost.OnAdditionalDocumentRemoved(DocumentId documentInfo)
             {
-                _workspace.OnAdditionalDocumentRemoved(additionalDocumentId);
+                _workspace.OnAdditionalDocumentRemoved(documentInfo);
             }
 
             void IVisualStudioWorkspaceHost.OnAdditionalDocumentOpened(DocumentId documentId, ITextBuffer textBuffer, bool isCurrentContext)
@@ -1396,6 +1407,11 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             void IVisualStudioWorkspaceHost2.OnHasAllInformation(ProjectId projectId, bool hasAllInformation)
             {
                 _workspace.OnHasAllInformationChanged(projectId, hasAllInformation);
+            }
+
+            void IVisualStudioWorkspaceHost2.UpdateGeneratedDocumentsIfNecessary(ProjectId projectId)
+            {
+                _workspace.UpdateGeneratedDocumentsIfNecessary(projectId);
             }
 
             void IVisualStudioWorkingFolder.OnBeforeWorkingFolderChange()
