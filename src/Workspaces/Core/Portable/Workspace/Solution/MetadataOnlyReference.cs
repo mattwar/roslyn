@@ -23,7 +23,7 @@ namespace Microsoft.CodeAnalysis
         private static readonly ConditionalWeakTable<BranchId, ConditionalWeakTable<ProjectId, MetadataOnlyReferenceSet>>.CreateValueCallback s_createReferenceSetMap =
             _ => new ConditionalWeakTable<ProjectId, MetadataOnlyReferenceSet>();
 
-        internal static MetadataReference GetOrBuildReference(
+        public static MetadataReference GetOrBuildReference(
             Solution solution,
             ProjectReference projectReference,
             Compilation finalCompilation,
@@ -42,8 +42,7 @@ namespace Microsoft.CodeAnalysis
 
             // first, prepare image
             // * NOTE * image is cancellable, do not create it inside of conditional weak table.
-            var service = solution.Workspace.Services.GetService<ITemporaryStorageService>();
-            var image = MetadataOnlyImage.Create(solution.Workspace, service, finalCompilation, cancellationToken);
+            var image = MetadataOnlyImage.Create(solution.Workspace, finalCompilation, cancellationToken);
 
             if (image.IsEmpty)
             {
@@ -89,7 +88,7 @@ namespace Microsoft.CodeAnalysis
             return referenceSet.GetMetadataReference(finalCompilation, projectReference.Aliases, projectReference.EmbedInteropTypes);
         }
 
-        internal static bool TryGetReference(
+        public static bool TryGetReference(
             Solution solution, ProjectReference projectReference, Compilation finalOrDeclarationCompilation, VersionStamp version, out MetadataReference reference)
         {
             // if we have one from snapshot cache, use it. it will make sure same compilation will get same metadata reference always.

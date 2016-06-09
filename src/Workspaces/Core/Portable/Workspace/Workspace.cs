@@ -107,6 +107,12 @@ namespace Microsoft.CodeAnalysis
             get { return false; }
         }
 
+
+        internal virtual ProjectReferenceMode ProjectReferenceMode
+        {
+            get { return ProjectReferenceMode.ShallowCompilationReferences; }
+        }
+
         /// <summary>
         /// The kind of the workspace. 
         /// This is generally <see cref="WorkspaceKind.Host"/> if originating from the host environment, but may be 
@@ -290,11 +296,6 @@ namespace Microsoft.CodeAnalysis
             {
                 this.ClearSolutionData();
             }
-        }
-
-        internal virtual ProjectReferenceMode ProjectReferenceMode
-        {
-            get { return ProjectReferenceMode.ShallowCompilation; }
         }
 
         #region Host API

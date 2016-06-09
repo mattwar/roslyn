@@ -223,12 +223,13 @@ namespace Microsoft.CodeAnalysis.UnitTests
                     Assert.True(compilation.References.Contains(meta), "Compilation references were expected to contain " + meta);
                 }
 
+#if false
                 // check that all project-to-project reference metadata is present in the compilation
                 foreach (var referenced in project.ProjectReferences)
                 {
                     if (solution.ContainsProject(referenced.ProjectId))
                     {
-                        var referencedMetadata = solution.GetMetadataReferenceAsync(referenced, solution.GetProjectState(project.Id), CancellationToken.None).Result;
+                        var referencedMetadata = solution.GetMetadataReferenceAsync(referenced, solution.GetProjectState(project.Id), null, CancellationToken.None).Result;
                         Assert.NotNull(referencedMetadata);
                         var compilationReference = referencedMetadata as CompilationReference;
                         if (compilationReference != null)
@@ -241,6 +242,12 @@ namespace Microsoft.CodeAnalysis.UnitTests
                         }
                     }
                 }
+#else
+                var sameLangageRefrencedProjectsCount = project.ProjectReferences.Count(
+                    pr => solution.ContainsProject(pr.ProjectId) && solution.GetProject(pr.ProjectId).Language == project.Language);
+                var compilationReferencesCount = compilation.References.Count(r => r is CompilationReference);
+                Assert.Equal(sameLangageRefrencedProjectsCount, compilationReferencesCount);
+#endif
 
                 // check that the syntax trees are the same
                 var docs = project.Documents.ToList();
@@ -1478,7 +1485,7 @@ public class C : A {
 
             // check flag for normal project that indirectly reference a borken project
             // normal project -> normal project -> broken project
-            Assert.False(transitivelyDependsOnBrokenProjects.HasSuccessfullyLoadedAsync().Result);
+            Assert.True(transitivelyDependsOnBrokenProjects.HasSuccessfullyLoadedAsync().Result);
 
             // check flag for normal project that indirectly reference only normal project
             // normal project -> normal project -> normal project

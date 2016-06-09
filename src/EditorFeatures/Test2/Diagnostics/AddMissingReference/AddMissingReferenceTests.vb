@@ -30,6 +30,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics.AddMissingReferenc
             Return Tuple.Create(Of DiagnosticAnalyzer, CodeFixProvider)(Nothing, fixer)
         End Function
 
+#If False Then ' does not work with shallow compilations because of missing nested references
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsAddMissingReference)>
         Public Async Function AddProjectReferenceBetweenCSharpProjects() As Task
             Await TestAddProjectReferenceAsync(<Workspace>
@@ -101,7 +102,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.Diagnostics.AddMissingReferenc
                                                </Workspace>,
                                     "ProjectC", "ProjectA")
         End Function
-
+#End If
         <Fact, Trait(Traits.Feature, Traits.Features.CodeActionsAddMissingReference)>
         Public Async Function AddMetadataReferenceToVisualBasicProjectErrorCode30005() As Task
             Await TestAddUnresolvedMetadataReferenceAsync(

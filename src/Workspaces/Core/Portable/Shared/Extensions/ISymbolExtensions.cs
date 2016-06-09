@@ -663,13 +663,16 @@ namespace Microsoft.CodeAnalysis.Shared.Extensions
                 return true;
             }
 
+            // check to see if a metadata symbol is actually from another source project somehow 
             var assembly = symbol as IAssemblySymbol ?? symbol.ContainingAssembly;
-            if (assembly != null && assembly.Language == compilation.Language)
+            if (assembly != null)
             {
                 var mref = compilation.GetMetadataReference(assembly);
                 if (mref != null)
                 {
-                    return MetadataOnlyImage.IsImageFromCompilation(mref);
+                    // we only create metadata-only-images from other projects in same solution
+                    MetadataOnlyImage image;
+                    return MetadataOnlyImage.TryGetImage(mref, out image) && image.Language == compilation.Language;
                 }
             }
 

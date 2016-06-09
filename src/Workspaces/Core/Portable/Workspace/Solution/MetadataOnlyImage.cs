@@ -13,16 +13,18 @@ namespace Microsoft.CodeAnalysis
 {
     internal class MetadataOnlyImage
     {
-        public static readonly MetadataOnlyImage Empty = new MetadataOnlyImage(storage: null, assemblyName: string.Empty);
+        public static readonly MetadataOnlyImage Empty = new MetadataOnlyImage(storage: null, assemblyName: string.Empty, language: string.Empty);
         private static readonly EmitOptions s_emitOptions = new EmitOptions(metadataOnly: true);
 
         private readonly ITemporaryStreamStorage _storage;
         private readonly string _assemblyName;
+        private readonly string _language;
 
-        private MetadataOnlyImage(ITemporaryStreamStorage storage, string assemblyName)
+        private MetadataOnlyImage(ITemporaryStreamStorage storage, string assemblyName, string language)
         {
             _storage = storage;
             _assemblyName = assemblyName;
+            _language = language;
         }
 
         public bool IsEmpty
@@ -30,9 +32,21 @@ namespace Microsoft.CodeAnalysis
             get { return _storage == null; }
         }
 
-        public static MetadataOnlyImage Create(Workspace workspace, ITemporaryStorageService service, Compilation compilation, CancellationToken cancellationToken)
+        public string AssemblyName
+        {
+            get { return _assemblyName; }
+        }
+
+        public string Language
+        {
+            get { return _language; }
+        }
+
+        public static MetadataOnlyImage Create(Workspace workspace, Compilation compilation, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            var service = workspace.Services.GetService<ITemporaryStorageService>();
 
             try
             {
@@ -56,7 +70,7 @@ namespace Microsoft.CodeAnalysis
                             stream.Position = 0;
                             storage.WriteStream(stream, cancellationToken);
 
-                            return new MetadataOnlyImage(storage, compilation.AssemblyName);
+                            return new MetadataOnlyImage(storage, compilation.AssemblyName, compilation.Language);
                         }
                         else
                         {
@@ -78,13 +92,37 @@ namespace Microsoft.CodeAnalysis
             return Empty;
         }
 
-        internal static bool IsImageFromCompilation(MetadataReference reference)
+        public static bool TryGetImage(MetadataReference reference, out MetadataOnlyImage image)
         {
-            Stream tmp;
-            return s_lifetime.TryGetValue(reference, out tmp) && tmp != null;
+            MetadataReferenceImageInfo tmp;
+            if (s_lifetime.TryGetValue(reference, out tmp) && tmp != null)
+            {
+                image = tmp.Image;
+                return true;
+            }
+            else
+            {
+                image = null;
+                return false;
+            }
         }
 
-        private static readonly ConditionalWeakTable<MetadataReference, Stream> s_lifetime = new ConditionalWeakTable<MetadataReference, Stream>();
+        private class MetadataReferenceImageInfo
+        {
+            public readonly MetadataOnlyImage Image;
+            public readonly Stream Stream;
+
+            public MetadataReferenceImageInfo(MetadataOnlyImage image, Stream stream)
+            {
+                System.Diagnostics.Debug.Assert(image != null);
+                System.Diagnostics.Debug.Assert(stream != null);
+                this.Image = image;
+                this.Stream = stream;
+            }
+        }
+
+        private static readonly ConditionalWeakTable<MetadataReference, MetadataReferenceImageInfo> s_lifetime 
+            = new ConditionalWeakTable<MetadataReference, MetadataReferenceImageInfo>();
 
         public MetadataReference CreateReference(ImmutableArray<string> aliases, bool embedInteropTypes, DocumentationProvider documentationProvider)
         {
@@ -112,7 +150,7 @@ namespace Microsoft.CodeAnalysis
                 // tie lifetime of stream to metadata reference we created. native memory's lifetime is tied to
                 // stream internally and stream is shared between same temporary storage. so here, we should be 
                 // sharing same native memory for all skeleton assemblies from same project snapshot.
-                s_lifetime.GetValue(referenceWithNativeMemory, _ => stream);
+                s_lifetime.GetValue(referenceWithNativeMemory, _ => new MetadataReferenceImageInfo(this, stream));
 
                 return referenceWithNativeMemory;
             }

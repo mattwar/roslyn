@@ -90,8 +90,7 @@ namespace Microsoft.CodeAnalysis
                 projectIdToTrackerMap: ImmutableDictionary<ProjectId, CompilationTracker>.Empty,
                 linkedFilesMap: ImmutableDictionary.Create<string, ImmutableArray<DocumentId>>(StringComparer.OrdinalIgnoreCase),
                 dependencyGraph: ProjectDependencyGraph.Empty,
-                lazyLatestProjectVersion: null,
-                projectReferenceMode: ProjectReferenceMode.DeepCompilation)
+                lazyLatestProjectVersion: null)
         {
             _lazyLatestProjectVersion = new Lazy<VersionStamp>(() => ComputeLatestProjectVersion());
         }
@@ -1175,7 +1174,7 @@ namespace Microsoft.CodeAnalysis
             foreach (var projectReference in projectState.ProjectReferences)
             {
                 var referencedProject = this.GetProject(projectReference.ProjectId);
-                var metadataReference = await this.GetMetadataReferenceAsync(projectReference, projectState, cancellationToken).ConfigureAwait(false);
+                var metadataReference = await this.GetMetadataReferenceAsync(projectReference, projectState, null, cancellationToken).ConfigureAwait(false);
                 // A reference can fail to be created if a skeleton assembly could not be constructed.
                 if (metadataReference != null)
                 {
@@ -2113,7 +2112,7 @@ namespace Microsoft.CodeAnalysis
         internal Task<Compilation> GetCompilationAsync(Project project, CancellationToken cancellationToken)
         {
             return project.SupportsCompilation
-                ? this.GetCompilationTracker(project.Id).GetCompilationAsync(this, ImmutableArray<ProjectId>.Empty, cancellationToken)
+                ? this.GetCompilationTracker(project.Id).GetCompilationAsync(this, null, cancellationToken)
                 : SpecializedTasks.Default<Compilation>();
         }
 
@@ -2163,14 +2162,14 @@ namespace Microsoft.CodeAnalysis
         /// <summary>
         /// Get a metadata reference for the project's compilation
         /// </summary>
-        internal Task<MetadataReference> GetMetadataReferenceAsync(ProjectReference projectReference, ProjectState fromProject, ImmutableArray<ProjectId> shallowReferenceProjects, CancellationToken cancellationToken)
+        internal Task<MetadataReference> GetMetadataReferenceAsync(ProjectReference projectReference, ProjectState fromProject, ImmutableHashSet<ProjectId> referenceIds, CancellationToken cancellationToken)
         {
             try
             {
                 // Get the compilation state for this project.  If it's not already created, then this
                 // will create it.  Then force that state to completion and get a metadata reference to it.
                 var tracker = this.GetCompilationTracker(projectReference.ProjectId);
-                return tracker.GetMetadataReferenceAsync(this, fromProject, projectReference, shallowReferenceProjects, cancellationToken);
+                return tracker.GetMetadataReferenceAsync(this, fromProject, projectReference, referenceIds, cancellationToken);
             }
             catch (Exception e) when (FatalError.ReportUnlessCanceled(e))
             {
