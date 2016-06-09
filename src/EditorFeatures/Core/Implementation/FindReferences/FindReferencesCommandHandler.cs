@@ -49,6 +49,13 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.FindReferences
                     {
                         using (Logger.LogBlock(FunctionId.CommandHandler_FindAllReference, context.CancellationToken))
                         {
+                            var workspace = document.Project.Solution.Workspace;
+                            if (workspace.IsPartialSolution)
+                            {
+                                workspace.EnsureProjectsAvailableAsync(workspace.GetReferencingProjectIds(document.Project.Id)).Wait(context.CancellationToken);
+                                document = workspace.CurrentSolution.GetDocument(document.Id);
+                            }
+
                             if (!service.TryFindReferences(document, caretPosition, context))
                             {
                                 foreach (var presenter in _presenters)

@@ -153,7 +153,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             }
 #endif
 
-            private void PushProjectAndDirectDependencies(ProjectId projectId, DocumentId ignoreOpenDocId = null)
+            public void PushProjectAndDirectDependencies(ProjectId projectId, DocumentId ignoreOpenDocId = null)
             {
                 AbstractProject project;
                 if (!_tracker._projectMap.TryGetValue(projectId, out project))
@@ -246,7 +246,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
                 return _pushedProjects.Contains(project);
             }
 
-            private void RemoveUnnecessaryProjects()
+            public void RemoveUnnecessaryProjects()
             {
                 var projects = _tracker._projectMap.Values.Where(p => !HasOpenDocuments(p) && !ParentsHaveOpenDocuments(p)).ToList();
 

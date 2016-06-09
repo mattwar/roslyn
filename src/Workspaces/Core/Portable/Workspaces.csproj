@@ -950,6 +950,7 @@
     <Compile Include="Workspace\Workspace.TextTracker.cs" />
     <Compile Include="Workspace\Workspace_Editor.cs" />
     <Compile Include="Workspace\Workspace_Events.cs" />
+    <Compile Include="Workspace\Workspace_PartialSolution.cs" />
     <Compile Include="Workspace\Workspace_Registration.cs" />
     <Compile Include="Workspace\WorkspaceChangeEventArgs.cs" />
     <Compile Include="Workspace\WorkspaceChangeKind.cs" />

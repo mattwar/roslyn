@@ -104,6 +104,7 @@
     <Compile Include="Implementation\Options\ExportLanguageSpecificOptionSerializerAttribute.cs" />
     <Compile Include="Implementation\Options\ExportOptionSerializerAttribute.cs" />
     <Compile Include="Implementation\ProjectSystem\Interop\IVsUndoState.cs" />
+    <Compile Include="Implementation\ProjectSystem\VisualStudioWorkspaceImpl_PartialSolution.cs" />
     <Compile Include="Implementation\Serialization\AssemblySerializationInfoService.cs" />
     <Compile Include="Implementation\SolutionSize\SolutionSizeTracker.cs" />
     <Compile Include="Implementation\TableDataSource\DiagnosticTableControlEventProcessorProvider.AggregateDiagnosticTableControlEventProcessor.cs" />

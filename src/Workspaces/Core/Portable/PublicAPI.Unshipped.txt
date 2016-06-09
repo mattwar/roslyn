@@ -1,2 +1,8 @@
 abstract Microsoft.CodeAnalysis.Editing.SyntaxGenerator.NameOfExpression(Microsoft.CodeAnalysis.SyntaxNode expression) -> Microsoft.CodeAnalysis.SyntaxNode
 static Microsoft.CodeAnalysis.Editing.DeclarationModifiers.TryParse(string value, out Microsoft.CodeAnalysis.Editing.DeclarationModifiers modifiers) -> bool
+virtual Microsoft.CodeAnalysis.Workspace.EnsureProjectsAvailableAsync(System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectId> projects, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Microsoft.CodeAnalysis.Solution>
+virtual Microsoft.CodeAnalysis.Workspace.GetAllProjectIds() -> System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectId>
+virtual Microsoft.CodeAnalysis.Workspace.GetReferencedProjectIds(Microsoft.CodeAnalysis.ProjectId projectId) -> System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectId>
+virtual Microsoft.CodeAnalysis.Workspace.GetReferencingProjectIds(Microsoft.CodeAnalysis.ProjectId projectId) -> System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectId>
+virtual Microsoft.CodeAnalysis.Workspace.IsPartialSolution.get -> bool
+virtual Microsoft.CodeAnalysis.Workspace.RemoveUnnecessaryProjects() -> void

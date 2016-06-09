@@ -94,6 +94,49 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
             }
         }
 
+        public IEnumerable<ProjectId> GetProjectIds()
+        {
+            return _projectMap.Keys;
+        }
+
+        public IEnumerable<ProjectId> GetReferencingProjectIds(ProjectId projectId)
+        {
+            foreach (var project in _projectMap.Values)
+            {
+                if (project.ProjectReferences.Any(pr => pr.ProjectId == projectId))
+                {
+                    yield return project.Id;
+                }
+            }
+        }
+
+        public IEnumerable<ProjectId> GetReferencedProjectIds(ProjectId projectId)
+        {
+            AbstractProject project;
+            if (_projectMap.TryGetValue(projectId, out project))
+            {
+                return project.ProjectReferences.Select(pr => pr.ProjectId);
+            }
+
+            return SpecializedCollections.EmptyEnumerable<ProjectId>();
+        }
+
+        public void EnsureProjectsAvailable(IEnumerable<ProjectId> projectIds)
+        {
+            NotifyWorkspaceHosts(host => 
+            {
+                foreach (var pid in projectIds)
+                {
+                    host.PushProjectAndDirectDependencies(pid);
+                }
+            });
+        }
+
+        public void RemoveUnnecessaryProjects()
+        {
+            NotifyWorkspaceHosts(host => host.RemoveUnnecessaryProjects());
+        }
+
         public void RegisterSolutionProperties(SolutionId solutionId)
         {
             try

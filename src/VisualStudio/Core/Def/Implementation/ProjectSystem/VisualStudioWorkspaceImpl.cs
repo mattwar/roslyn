@@ -39,7 +39,7 @@ namespace Microsoft.VisualStudio.LanguageServices.Implementation.ProjectSystem
     /// <summary>
     /// The Workspace for running inside Visual Studio.
     /// </summary>
-    internal abstract class VisualStudioWorkspaceImpl : VisualStudioWorkspace
+    internal abstract partial class VisualStudioWorkspaceImpl : VisualStudioWorkspace
     {
         private static readonly IntPtr s_docDataExisting_Unknown = new IntPtr(-1);
         private const string AppCodeFolderName = "App_Code";
