@@ -34,8 +34,7 @@ namespace Microsoft.CodeAnalysis
         private readonly SolutionId _id;
         private readonly string _filePath;
         private readonly IReadOnlyList<ProjectId> _projectIds;
-        private readonly ImmutableDictionary<ProjectId, ProjectState> _projectIdToProjectStateMap;
-        private readonly ImmutableDictionary<string, ImmutableArray<DocumentId>> _linkedFilesMap;
+        private readonly ImmutableDictionary<ProjectId, DeferredProjectState> _projectIdToProjectStateMap;
         private readonly VersionStamp _version;
         private readonly Lazy<VersionStamp> _lazyLatestProjectVersion;
         private readonly ProjectDependencyGraph _dependencyGraph;
@@ -43,6 +42,7 @@ namespace Microsoft.CodeAnalysis
         // Values for all these are created on demand.
         private ImmutableHashMap<ProjectId, Project> _projectIdToProjectMap;
         private ImmutableDictionary<ProjectId, CompilationTracker> _projectIdToTrackerMap;
+        private ImmutableDictionary<string, ImmutableArray<DocumentId>> _linkedFilesMap;
 
         private Solution(
             BranchId branchId,
@@ -51,7 +51,7 @@ namespace Microsoft.CodeAnalysis
             SolutionId id,
             string filePath,
             IEnumerable<ProjectId> projectIds,
-            ImmutableDictionary<ProjectId, ProjectState> idToProjectStateMap,
+            ImmutableDictionary<ProjectId, DeferredProjectState> idToProjectStateMap,
             ImmutableDictionary<ProjectId, CompilationTracker> projectIdToTrackerMap,
             ImmutableDictionary<string, ImmutableArray<DocumentId>> linkedFilesMap,
             ProjectDependencyGraph dependencyGraph,
@@ -86,9 +86,9 @@ namespace Microsoft.CodeAnalysis
                 filePath: info.FilePath,
                 version: info.Version,
                 projectIds: null,
-                idToProjectStateMap: ImmutableDictionary<ProjectId, ProjectState>.Empty,
+                idToProjectStateMap: ImmutableDictionary<ProjectId, DeferredProjectState>.Empty,
                 projectIdToTrackerMap: ImmutableDictionary<ProjectId, CompilationTracker>.Empty,
-                linkedFilesMap: ImmutableDictionary.Create<string, ImmutableArray<DocumentId>>(StringComparer.OrdinalIgnoreCase),
+                linkedFilesMap: null,
                 dependencyGraph: ProjectDependencyGraph.Empty,
                 lazyLatestProjectVersion: null)
         {
@@ -204,7 +204,7 @@ namespace Microsoft.CodeAnalysis
 
         private Solution Branch(
             IEnumerable<ProjectId> projectIds = null,
-            ImmutableDictionary<ProjectId, ProjectState> idToProjectStateMap = null,
+            ImmutableDictionary<ProjectId, DeferredProjectState> idToProjectStateMap = null,
             ImmutableDictionary<ProjectId, CompilationTracker> projectIdToTrackerMap = null,
             ImmutableDictionary<string, ImmutableArray<DocumentId>> linkedFilesMap = null,
             ProjectDependencyGraph dependencyGraph = null,
@@ -314,16 +314,76 @@ namespace Microsoft.CodeAnalysis
 
             if (this.ContainsProject(projectId))
             {
-                return ImmutableHashMapExtensions.GetOrAdd(ref _projectIdToProjectMap, projectId, s_createProjectFunction, this);
+                Project project;
+                if (this.TryGetProject(projectId, out project))
+                {
+                    return project;
+                }
+
+                return this.GetProjectAsync(projectId, CancellationToken.None).WaitAndGetResult_CanCallOnBackground(CancellationToken.None);
             }
 
             return null;
         }
 
-        private static readonly Func<ProjectId, Solution, Project> s_createProjectFunction = CreateProject;
-        private static Project CreateProject(ProjectId projectId, Solution solution)
+        /// <summary>
+        /// Gets the project in this solution with the specified project ID if it currently available (loaded).
+        /// </summary>
+        public bool TryGetProject(ProjectId projectId, out Project project)
         {
-            return new Project(solution, solution.GetProjectState(projectId));
+            if (projectId == null)
+            {
+                throw new ArgumentNullException(nameof(projectId));
+            }
+
+            project = null;
+
+            if (this.ContainsProject(projectId))
+            {
+                if (!_projectIdToProjectMap.TryGetValue(projectId, out project))
+                {
+                    DeferredProjectState deferred;
+                    ProjectState state;
+                    if (_projectIdToProjectStateMap.TryGetValue(projectId, out deferred) && deferred.Source.TryGetValue(out state))
+                    {
+                        while (!_projectIdToProjectMap.TryGetValue(projectId, out project))
+                        {
+                            var newProject = new Project(this, state);
+                            ImmutableHashMapExtensions.GetOrAdd(ref _projectIdToProjectMap, projectId, (_projectId, _solution) => newProject, this);
+                        }
+                    }
+                }
+            }
+
+            return project != null;
+        }
+
+        /// <summary>
+        /// Gets the project in this solution with the specified project ID, asynchronously.
+        /// 
+        /// If the id is not an id of a project that is part of this solution the method returns null.
+        /// </summary>
+        public async Task<Project> GetProjectAsync(ProjectId projectId, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            if (projectId == null)
+            {
+                throw new ArgumentNullException(nameof(projectId));
+            }
+
+            if (this.ContainsProject(projectId))
+            {
+                Project project;
+                while (!_projectIdToProjectMap.TryGetValue(projectId, out project))
+                {
+                    var state = await this.GetProjectStateAsync(projectId, cancellationToken).ConfigureAwait(false);
+                    var newProject = new Project(this, state);
+                    ImmutableHashMapExtensions.GetOrAdd(ref _projectIdToProjectMap, projectId, (_projectId, _solution) => newProject, this);
+                }
+
+                return project;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -337,10 +397,11 @@ namespace Microsoft.CodeAnalysis
             }
 
             // TODO: Remove this loop when we add source assembly symbols to s_assemblyOrModuleSymbolToProjectMap
-            foreach (var state in _projectIdToProjectStateMap.Values)
+            foreach (var deferred in _projectIdToProjectStateMap.Values)
             {
+                ProjectState state;
                 Compilation compilation;
-                if (this.TryGetCompilation(state.Id, out compilation))
+                if (deferred.Source.TryGetValue(out state) && state != null && this.TryGetCompilation(state.Id, out compilation))
                 {
                     // if the symbol is the compilation's assembly symbol, we are done
                     if (compilation.Assembly == assemblySymbol)
@@ -363,7 +424,7 @@ namespace Microsoft.CodeAnalysis
             return
                 documentId != null &&
                 this.ContainsProject(documentId.ProjectId) &&
-                this.GetProjectState(documentId.ProjectId).ContainsDocument(documentId);
+                this.GetLoadedProjectStateOrFail(documentId.ProjectId).ContainsDocument(documentId);
         }
 
         /// <summary>
@@ -374,7 +435,7 @@ namespace Microsoft.CodeAnalysis
             return
                 documentId != null &&
                 this.ContainsProject(documentId.ProjectId) &&
-                this.GetProjectState(documentId.ProjectId).ContainsAdditionalDocument(documentId);
+                this.GetLoadedProjectStateOrFail(documentId.ProjectId).ContainsAdditionalDocument(documentId);
         }
 
         /// <summary>
@@ -437,7 +498,7 @@ namespace Microsoft.CodeAnalysis
         {
             if (documentId != null)
             {
-                var projectState = this.GetProjectState(documentId.ProjectId);
+                var projectState = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
                 if (projectState != null)
                 {
                     return projectState.GetDocumentState(documentId);
@@ -451,7 +512,7 @@ namespace Microsoft.CodeAnalysis
         {
             if (documentId != null)
             {
-                var projectState = this.GetProjectState(documentId.ProjectId);
+                var projectState = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
                 if (projectState != null)
                 {
                     return projectState.GetAdditionalDocumentState(documentId);
@@ -496,19 +557,123 @@ namespace Microsoft.CodeAnalysis
 
         internal Task<VersionStamp> GetDependentVersionAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
-            return this.GetCompilationTracker(projectId).GetDependentVersionAsync(this, cancellationToken);
+            CompilationTracker tracker;
+            if (this.TryGetCompilationTracker(projectId, out tracker))
+            {
+                return tracker.GetDependentVersionAsync(this, cancellationToken);
+            }
+            else
+            {
+                return GetDependentVersionWorkerAsync(projectId, cancellationToken);
+            }
+        }
+
+        private async Task<VersionStamp> GetDependentVersionWorkerAsync(ProjectId projectId, CancellationToken cancellationToken)
+        {
+            var tracker = await this.GetCompilationTrackerAsync(projectId, cancellationToken).ConfigureAwait(false);
+            return await tracker.GetDependentVersionAsync(this, cancellationToken).ConfigureAwait(false);
         }
 
         internal Task<VersionStamp> GetDependentSemanticVersionAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
-            return this.GetCompilationTracker(projectId).GetDependentSemanticVersionAsync(this, cancellationToken);
+            CompilationTracker tracker;
+            if (this.TryGetCompilationTracker(projectId, out tracker))
+            {
+                return tracker.GetDependentSemanticVersionAsync(this, cancellationToken);
+            }
+            else
+            {
+                return this.GetDependentSemanticVersionWorkerAsync(projectId, cancellationToken);
+            }
         }
 
-        internal ProjectState GetProjectState(ProjectId projectId)
+        internal async Task<VersionStamp> GetDependentSemanticVersionWorkerAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
-            ProjectState state;
+            var tracker = await this.GetCompilationTrackerAsync(projectId, cancellationToken).ConfigureAwait(false);
+            return await tracker.GetDependentSemanticVersionAsync(this, cancellationToken).ConfigureAwait(false);
+        }
+
+        internal DeferredProjectState GetDeferredProjectState(ProjectId projectId)
+        {
+            DeferredProjectState state;
             _projectIdToProjectStateMap.TryGetValue(projectId, out state);
             return state;
+        }
+
+        internal ProjectState GetLoadedProjectStateOrFail(ProjectId projectId)
+        {
+            ProjectState state;
+            if (this.ContainsProject(projectId))
+            {
+                if (TryGetProjectState(projectId, out state))
+                {
+                    return state;
+                }
+                else
+                {
+                    throw new InvalidOperationException("Project not loaded");
+                }
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        private ProjectState GetProjectStateOrBlock(ProjectId projectId)
+        {
+            ProjectState state;
+            if (this.ContainsProject(projectId))
+            {
+                if (TryGetProjectState(projectId, out state))
+                {
+                    return state;
+                }
+                else
+                {
+                    return this.GetProjectStateAsync(projectId, CancellationToken.None).WaitAndGetResult_CanCallOnBackground(CancellationToken.None);
+                }
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+
+        internal bool TryGetProjectState(ProjectId projectId, out ProjectState state)
+        {
+            DeferredProjectState deferred;
+            if (_projectIdToProjectStateMap.TryGetValue(projectId, out deferred)
+                && deferred.Source.TryGetValue(out state))
+            {
+                return true;
+            }
+            else
+            {
+                state = null;
+                return false;
+            }
+        }
+
+        internal async Task<ProjectState> GetProjectStateAsync(ProjectId projectId, CancellationToken cancellationToken)
+        {
+            DeferredProjectState deferred;
+            ProjectState state;
+
+            if (_projectIdToProjectStateMap.TryGetValue(projectId, out deferred))
+            {
+                if (deferred.Source.TryGetValue(out state))
+                {
+                    return state;
+                }
+
+                return await deferred.Source.GetValueAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                return null;
+            }
         }
 
         private bool TryGetCompilationTracker(ProjectId projectId, out CompilationTracker tracker)
@@ -516,18 +681,26 @@ namespace Microsoft.CodeAnalysis
             return _projectIdToTrackerMap.TryGetValue(projectId, out tracker);
         }
 
-        private static readonly Func<ProjectId, Solution, CompilationTracker> s_createCompilationTrackerFunction = CreateCompilationTracker;
-        private static CompilationTracker CreateCompilationTracker(ProjectId projectId, Solution solution)
+        private Task<CompilationTracker> GetCompilationTrackerAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
-            return new CompilationTracker(solution.GetProjectState(projectId));
+            CompilationTracker tracker;
+            if (_projectIdToTrackerMap.TryGetValue(projectId, out tracker))
+            {
+                return Task.FromResult(tracker);
+            }
+            else
+            {
+                return GetCompilationTrackerWorkerAsync(projectId, cancellationToken);
+            }
         }
 
-        private CompilationTracker GetCompilationTracker(ProjectId projectId)
+        private async Task<CompilationTracker> GetCompilationTrackerWorkerAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
             CompilationTracker tracker;
             if (!_projectIdToTrackerMap.TryGetValue(projectId, out tracker))
             {
-                tracker = ImmutableInterlocked.GetOrAdd(ref _projectIdToTrackerMap, projectId, s_createCompilationTrackerFunction, this);
+                var projectState = await this.GetProjectStateAsync(projectId, cancellationToken).ConfigureAwait(false);
+                tracker = ImmutableInterlocked.GetOrAdd(ref _projectIdToTrackerMap, projectId, (_p, _s) => new CompilationTracker(projectState), this);
             }
 
             return tracker;
@@ -536,19 +709,45 @@ namespace Microsoft.CodeAnalysis
         private Solution AddProject(ProjectId projectId, ProjectState projectState)
         {
             var newProjectIds = _projectIds.ToImmutableArray().Add(projectId);
-            var newStateMap = _projectIdToProjectStateMap.Add(projectId, projectState);
+            var newStateMap = _projectIdToProjectStateMap.Add(projectId, new DeferredProjectState(projectState));
             var newDependencyGraph = CreateDependencyGraph(newProjectIds, newStateMap);
             var newTrackerMap = CreateCompilationTrackerMap(projectId, newDependencyGraph);
-            var newLinkedFilesMap = CreateLinkedFilesMapWithAddedProject(newStateMap[projectId]);
 
             return this.Branch(
                 projectIds: newProjectIds,
                 idToProjectStateMap: newStateMap,
                 projectIdToTrackerMap: newTrackerMap,
-                linkedFilesMap: newLinkedFilesMap,
+                linkedFilesMap: null,
                 dependencyGraph: newDependencyGraph,
                 version: this.Version.GetNewerVersion(),  // changed project list so, increment version.
                 lazyLatestProjectVersion: new Lazy<VersionStamp>(() => projectState.Version)); // this is the newest!
+        }
+
+        internal Solution AddDeferredProjects(IReadOnlyList<DeferredProjectInfo> deferredProjects, DeferredProjectLoader loader)
+        {
+            var newProjectIds = _projectIds.ToImmutableArray().AddRange(deferredProjects.Select(p => p.Id));
+
+            var newStateMap = _projectIdToProjectStateMap;
+            foreach (var dp in deferredProjects)
+            {
+                newStateMap = newStateMap.Add(dp.Id, new DeferredProjectState(dp, new AsyncLazy<ProjectState>(async c =>
+                {
+                    var info = await loader.GetProjectInfoAsync(dp.Id, c).ConfigureAwait(false);
+                    var languageServices = this.Workspace.Services.GetLanguageServices(info.Language);
+                    this._linkedFilesMap = null; // clear map on project load so it will be recomputed with new project info. !!observable!!
+                    return new ProjectState(info, languageServices, _solutionServices);
+                }, cacheResult: true)));
+            }
+
+            var newDependencyGraph = CreateDependencyGraph(newProjectIds, newStateMap);
+            var newTrackerMap = _projectIdToTrackerMap;
+
+            return this.Branch(
+                projectIds: newProjectIds,
+                idToProjectStateMap: newStateMap,
+                projectIdToTrackerMap: newTrackerMap,
+                dependencyGraph: newDependencyGraph,
+                version: this.Version.GetNewerVersion());  // changed project list so, increment version.
         }
 
         /// <summary>
@@ -606,33 +805,6 @@ namespace Microsoft.CodeAnalysis
             return this.AddProject(newProject.Id, newProject);
         }
 
-        private ImmutableDictionary<string, ImmutableArray<DocumentId>> CreateLinkedFilesMapWithAddedProject(ProjectState projectState)
-        {
-            return CreateLinkedFilesMapWithAddedDocuments(projectState, projectState.DocumentIds);
-        }
-
-        private ImmutableDictionary<string, ImmutableArray<DocumentId>> CreateLinkedFilesMapWithAddedDocuments(ProjectState projectState, IEnumerable<DocumentId> documentIds)
-        {
-            var builder = _linkedFilesMap.ToBuilder();
-
-            foreach (var documentId in documentIds)
-            {
-                var filePath = projectState.GetDocumentState(documentId).FilePath;
-
-                if (string.IsNullOrEmpty(filePath))
-                {
-                    continue;
-                }
-
-                ImmutableArray<DocumentId> documentIdsWithPath;
-                builder[filePath] = builder.TryGetValue(filePath, out documentIdsWithPath)
-                    ? documentIdsWithPath.Add(documentId)
-                    : ImmutableArray.Create(documentId);
-            }
-
-            return builder.ToImmutable();
-        }
-
         /// <summary>
         /// Create a new solution instance without the project specified.
         /// </summary>
@@ -645,58 +817,34 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(projectId);
 
-            var newProjectIds = _projectIds.ToImmutableArray().Remove(projectId);
-            var newStateMap = _projectIdToProjectStateMap.Remove(projectId);
-            var newDependencyGraph = CreateDependencyGraph(newProjectIds, newStateMap);
-            var newTrackerMap = CreateCompilationTrackerMap(projectId, newDependencyGraph);
-            var newLinkedFilesMap = CreateLinkedFilesMapWithRemovedProject(_projectIdToProjectStateMap[projectId]);
-
-            return this.Branch(
-                projectIds: newProjectIds,
-                idToProjectStateMap: newStateMap,
-                projectIdToTrackerMap: newTrackerMap.Remove(projectId),
-                linkedFilesMap: newLinkedFilesMap,
-                dependencyGraph: newDependencyGraph,
-                version: this.Version.GetNewerVersion()); // changed project list, so increment version
-        }
-
-        private ImmutableDictionary<string, ImmutableArray<DocumentId>> CreateLinkedFilesMapWithRemovedProject(ProjectState projectState)
-        {
-            return CreateLinkedFilesMapWithRemovedDocuments(projectState, projectState.DocumentIds);
-        }
-
-        private ImmutableDictionary<string, ImmutableArray<DocumentId>> CreateLinkedFilesMapWithRemovedDocuments(
-            ProjectState projectState,
-            IEnumerable<DocumentId> documentIds)
-        {
-            var builder = _linkedFilesMap.ToBuilder();
-
-            foreach (var documentId in documentIds)
+            ProjectState oldState;
+            if (this.TryGetProjectState(projectId, out oldState))
             {
-                var filePath = projectState.GetDocumentState(documentId).FilePath;
+                var newProjectIds = _projectIds.ToImmutableArray().Remove(projectId);
+                var newStateMap = _projectIdToProjectStateMap.Remove(projectId);
+                var newDependencyGraph = CreateDependencyGraph(newProjectIds, newStateMap);
+                var newTrackerMap = CreateCompilationTrackerMap(projectId, newDependencyGraph);
 
-                if (string.IsNullOrEmpty(filePath))
-                {
-                    continue;
-                }
-
-                ImmutableArray<DocumentId> documentIdsWithPath;
-                if (!builder.TryGetValue(filePath, out documentIdsWithPath) || !documentIdsWithPath.Contains(documentId))
-                {
-                    throw new ArgumentException("The given documentId was not found in the linkedFilesMap.");
-                }
-
-                if (documentIdsWithPath.Length == 1)
-                {
-                    builder.Remove(filePath);
-                }
-                else
-                {
-                    builder[filePath] = documentIdsWithPath.Remove(documentId);
-                }
+                return this.Branch(
+                    projectIds: newProjectIds,
+                    idToProjectStateMap: newStateMap,
+                    projectIdToTrackerMap: newTrackerMap.Remove(projectId),
+                    linkedFilesMap: null,
+                    dependencyGraph: newDependencyGraph,
+                    version: this.Version.GetNewerVersion()); // changed project list, so increment version
             }
+            else
+            {
+                var newProjectIds = _projectIds.ToImmutableArray().Remove(projectId);
+                var newStateMap = _projectIdToProjectStateMap.Remove(projectId);
+                var newDependencyGraph = CreateDependencyGraph(newProjectIds, newStateMap);
 
-            return builder.ToImmutable();
+                return this.Branch(
+                    projectIds: newProjectIds,
+                    idToProjectStateMap: newStateMap,
+                    dependencyGraph: newDependencyGraph,
+                    version: this.Version.GetNewerVersion()); // changed project list, so increment version
+            }
         }
 
         /// <summary>
@@ -717,7 +865,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(projectId);
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.UpdateAssemblyName(assemblyName);
 
             if (oldProject == newProject)
@@ -740,7 +888,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(projectId);
 
-            return this.ForkProject(this.GetProjectState(projectId).UpdateOutputPath(outputFilePath));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).UpdateOutputPath(outputFilePath));
         }
 
         /// <summary>
@@ -755,7 +903,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(projectId);
 
-            return this.ForkProject(this.GetProjectState(projectId).UpdateName(name));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).UpdateName(name));
         }
 
         /// <summary>
@@ -770,7 +918,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(projectId);
 
-            return this.ForkProject(this.GetProjectState(projectId).UpdateFilePath(filePath));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).UpdateFilePath(filePath));
         }
 
         /// <summary>
@@ -791,7 +939,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(projectId);
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.UpdateCompilationOptions(options);
 
             if (oldProject == newProject)
@@ -815,7 +963,7 @@ namespace Microsoft.CodeAnalysis
 
             Contract.Requires(this.ContainsProject(projectId));
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.UpdateParseOptions(options);
 
             if (oldProject == newProject)
@@ -849,7 +997,7 @@ namespace Microsoft.CodeAnalysis
 
             Contract.Requires(this.ContainsProject(projectId));
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.UpdateHasAllInformation(hasAllInformation);
 
             if (oldProject == newProject)
@@ -897,7 +1045,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckNotSecondSubmissionReference(projectId, projectReference.ProjectId);
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.AddProjectReference(projectReference);
 
             return this.ForkProject(newProject, withProjectReferenceChange: true);
@@ -929,7 +1077,7 @@ namespace Microsoft.CodeAnalysis
                 CheckNotSecondSubmissionReference(projectId, referencedProject.ProjectId);
             }
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.AddProjectReferences(projectReferences);
 
             return this.ForkProject(newProject, withProjectReferenceChange: true);
@@ -954,7 +1102,7 @@ namespace Microsoft.CodeAnalysis
             CheckContainsProject(projectId);
             CheckContainsProject(projectReference.ProjectId);
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.RemoveProjectReference(projectReference);
 
             return this.ForkProject(newProject, withProjectReferenceChange: true);
@@ -978,7 +1126,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(projectId);
 
-            var oldProject = this.GetProjectState(projectId);
+            var oldProject = this.GetProjectStateOrBlock(projectId);
             var newProject = oldProject.WithProjectReferences(projectReferences);
 
             return this.ForkProject(newProject, withProjectReferenceChange: true);
@@ -1003,7 +1151,7 @@ namespace Microsoft.CodeAnalysis
             CheckContainsProject(projectId);
 
             return this.ForkProject(
-                this.GetProjectState(projectId).AddMetadataReference(metadataReference));
+                this.GetProjectStateOrBlock(projectId).AddMetadataReference(metadataReference));
         }
 
         /// <summary>
@@ -1023,7 +1171,7 @@ namespace Microsoft.CodeAnalysis
             }
 
             CheckContainsProject(projectId);
-            return this.ForkProject(this.GetProjectState(projectId).AddMetadataReferences(metadataReferences));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).AddMetadataReferences(metadataReferences));
         }
 
         /// <summary>
@@ -1045,7 +1193,7 @@ namespace Microsoft.CodeAnalysis
             CheckContainsProject(projectId);
 
             return this.ForkProject(
-                this.GetProjectState(projectId).RemoveMetadataReference(metadataReference));
+                this.GetProjectStateOrBlock(projectId).RemoveMetadataReference(metadataReference));
         }
 
         /// <summary>
@@ -1065,7 +1213,7 @@ namespace Microsoft.CodeAnalysis
             }
 
             CheckContainsProject(projectId);
-            return this.ForkProject(this.GetProjectState(projectId).WithMetadataReferences(metadataReferences));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).WithMetadataReferences(metadataReferences));
         }
 
         /// <summary>
@@ -1085,7 +1233,7 @@ namespace Microsoft.CodeAnalysis
             }
 
             CheckContainsProject(projectId);
-            return this.ForkProject(this.GetProjectState(projectId).AddAnalyzerReference(analyzerReference));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).AddAnalyzerReference(analyzerReference));
         }
 
         /// <summary>
@@ -1105,7 +1253,7 @@ namespace Microsoft.CodeAnalysis
             }
 
             CheckContainsProject(projectId);
-            return this.ForkProject(this.GetProjectState(projectId).AddAnalyzerReferences(analyzerReferences));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).AddAnalyzerReferences(analyzerReferences));
         }
 
         /// <summary>
@@ -1125,7 +1273,7 @@ namespace Microsoft.CodeAnalysis
             }
 
             CheckContainsProject(projectId);
-            return this.ForkProject(this.GetProjectState(projectId).RemoveAnalyzerReference(analyzerReference));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).RemoveAnalyzerReference(analyzerReference));
         }
 
         /// <summary>
@@ -1145,7 +1293,7 @@ namespace Microsoft.CodeAnalysis
             }
 
             CheckContainsProject(projectId);
-            return this.ForkProject(this.GetProjectState(projectId).WithAnalyzerReferences(analyzerReferences));
+            return this.ForkProject(this.GetProjectStateOrBlock(projectId).WithAnalyzerReferences(analyzerReferences));
         }
 
         internal ImmutableArray<DocumentInfo> GetGeneratedDocuments(ProjectId projectId)
@@ -1189,7 +1337,7 @@ namespace Microsoft.CodeAnalysis
 
         private async Task<ImmutableArray<DocumentInfo>> GetGeneratedDocumentsAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
-            var projectState = this.GetProjectState(projectId);
+            var projectState = this.GetProjectStateOrBlock(projectId);
             var projectInfo = projectState.ProjectInfo;
             var builder = ArrayBuilder<SourceGenerator>.GetInstance();
             foreach (var reference in projectInfo.AnalyzerReferences)
@@ -1230,13 +1378,13 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(state.Id.ProjectId);
 
-            var oldProject = this.GetProjectState(state.Id.ProjectId);
+            var oldProject = this.GetProjectStateOrBlock(state.Id.ProjectId);
             var newProject = oldProject.AddDocument(state);
 
             return this.ForkProject(
                 newProject,
                 CompilationTranslationAction.AddDocument(state),
-                newLinkedFilesMap: CreateLinkedFilesMapWithAddedDocuments(newProject, SpecializedCollections.SingletonEnumerable(state.Id)));
+                newLinkedFilesMap: null);
         }
 
         /// <summary>
@@ -1272,7 +1420,7 @@ namespace Microsoft.CodeAnalysis
                 throw new ArgumentNullException(nameof(text));
             }
 
-            var project = this.GetProjectState(documentId.ProjectId);
+            var project = this.GetProjectStateOrBlock(documentId.ProjectId);
 
             var version = VersionStamp.Create();
             var loader = TextLoader.From(TextAndVersion.Create(text, version, name));
@@ -1333,7 +1481,7 @@ namespace Microsoft.CodeAnalysis
                 throw new ArgumentNullException(nameof(loader));
             }
 
-            var project = this.GetProjectState(documentId.ProjectId);
+            var project = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
 
             var info = DocumentInfo.Create(
                 documentId,
@@ -1359,7 +1507,7 @@ namespace Microsoft.CodeAnalysis
             CheckContainsProject(documentInfo.Id.ProjectId);
             CheckNotContainsDocument(documentInfo.Id);
 
-            var project = this.GetProjectState(documentInfo.Id.ProjectId);
+            var project = this.GetProjectStateOrBlock(documentInfo.Id.ProjectId);
 
             var doc = DocumentState.Create(
                 documentInfo,
@@ -1416,7 +1564,7 @@ namespace Microsoft.CodeAnalysis
                 throw new ArgumentNullException(nameof(text));
             }
 
-            var project = this.GetProjectState(documentId.ProjectId);
+            var project = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
 
             var version = VersionStamp.Create();
             var loader = TextLoader.From(TextAndVersion.Create(text, version, name));
@@ -1446,7 +1594,7 @@ namespace Microsoft.CodeAnalysis
             CheckContainsProject(documentInfo.Id.ProjectId);
             CheckNotContainsAdditionalDocument(documentInfo.Id);
 
-            var project = this.GetProjectState(documentInfo.Id.ProjectId);
+            var project = this.GetLoadedProjectStateOrFail(documentInfo.Id.ProjectId);
 
             var doc = TextDocumentState.Create(
                 documentInfo,
@@ -1464,7 +1612,7 @@ namespace Microsoft.CodeAnalysis
 
             CheckContainsProject(state.Id.ProjectId);
 
-            var oldProject = this.GetProjectState(state.Id.ProjectId);
+            var oldProject = this.GetLoadedProjectStateOrFail(state.Id.ProjectId);
             var newProject = oldProject.AddAdditionalDocument(state);
 
             return this.ForkProject(newProject);
@@ -1477,14 +1625,14 @@ namespace Microsoft.CodeAnalysis
         {
             CheckContainsDocument(documentId);
 
-            var oldProject = this.GetProjectState(documentId.ProjectId);
+            var oldProject = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
             var oldDocument = oldProject.GetDocumentState(documentId);
             var newProject = oldProject.RemoveDocument(documentId);
 
             return this.ForkProject(
                 newProject,
                 CompilationTranslationAction.RemoveDocument(oldDocument),
-                newLinkedFilesMap: CreateLinkedFilesMapWithRemovedDocuments(oldProject, SpecializedCollections.SingletonEnumerable(documentId)));
+                newLinkedFilesMap: null);
         }
 
         /// <summary>
@@ -1494,7 +1642,7 @@ namespace Microsoft.CodeAnalysis
         {
             CheckContainsAdditionalDocument(documentId);
 
-            var oldProject = this.GetProjectState(documentId.ProjectId);
+            var oldProject = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
             var newProject = oldProject.RemoveAdditionalDocument(documentId);
 
             return this.ForkProject(newProject);
@@ -1798,7 +1946,7 @@ namespace Microsoft.CodeAnalysis
         {
             Contract.Requires(this.ContainsDocument(documentId));
 
-            var oldProject = this.GetProjectState(documentId.ProjectId);
+            var oldProject = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
             var newProject = touchProject(oldProject);
 
             if (oldProject == newProject)
@@ -1828,7 +1976,7 @@ namespace Microsoft.CodeAnalysis
                 return this;
             }
 
-            var oldProject = this.GetProjectState(newDocument.Id.ProjectId);
+            var oldProject = this.GetLoadedProjectStateOrFail(newDocument.Id.ProjectId);
             var newProject = oldProject.UpdateAdditionalDocument(newDocument, textChanged, recalculateDependentVersions);
 
             if (oldProject == newProject)
@@ -1851,12 +1999,12 @@ namespace Microsoft.CodeAnalysis
             ProjectState newProjectState,
             CompilationTranslationAction translate = null,
             bool withProjectReferenceChange = false,
-            ImmutableDictionary<string, ImmutableArray<DocumentId>> newLinkedFilesMap = null,
+            Optional<ImmutableDictionary<string, ImmutableArray<DocumentId>>> newLinkedFilesMap = default(Optional<ImmutableDictionary<string, ImmutableArray<DocumentId>>>),
             bool forkTracker = true)
         {
             var projectId = newProjectState.Id;
 
-            var newStateMap = _projectIdToProjectStateMap.SetItem(projectId, newProjectState);
+            var newStateMap = _projectIdToProjectStateMap.SetItem(projectId, new DeferredProjectState(newProjectState));
             var newDependencyGraph = withProjectReferenceChange ? CreateDependencyGraph(_projectIds, newStateMap) : _dependencyGraph;
             var newTrackerMap = CreateCompilationTrackerMap(projectId, newDependencyGraph);
 
@@ -1880,13 +2028,53 @@ namespace Microsoft.CodeAnalysis
                 idToProjectStateMap: newStateMap,
                 projectIdToTrackerMap: newTrackerMap,
                 dependencyGraph: newDependencyGraph,
-                linkedFilesMap: newLinkedFilesMap ?? _linkedFilesMap,
+                linkedFilesMap: newLinkedFilesMap.HasValue ? newLinkedFilesMap.Value : _linkedFilesMap,
                 lazyLatestProjectVersion: newLatestProjectVersion);
+        }
+
+        private ImmutableDictionary<string, ImmutableArray<DocumentId>> GetLinkedFilesMap()
+        {
+            if (_linkedFilesMap == null)
+            {
+                var tmp = CreateLinkedFilesMap();
+                Interlocked.CompareExchange(ref _linkedFilesMap, tmp, null);
+            }
+
+            return _linkedFilesMap;
+        }
+
+        private ImmutableDictionary<string, ImmutableArray<DocumentId>> CreateLinkedFilesMap()
+        {
+            var builder = ImmutableDictionary.Create<string, ImmutableArray<DocumentId>>(StringComparer.OrdinalIgnoreCase).ToBuilder();
+
+            foreach (var projectId in this.ProjectIds)
+            {
+                ProjectState projectState;
+                if (this.TryGetProjectState(projectId, out projectState))
+                {
+                    foreach (var documentId in projectState.DocumentIds)
+                    {
+                        var filePath = projectState.GetDocumentState(documentId).FilePath;
+
+                        if (string.IsNullOrEmpty(filePath))
+                        {
+                            continue;
+                        }
+
+                        ImmutableArray<DocumentId> documentIdsWithPath;
+                        builder[filePath] = builder.TryGetValue(filePath, out documentIdsWithPath)
+                            ? documentIdsWithPath.Add(documentId)
+                            : ImmutableArray.Create(documentId);
+                    }
+                }
+            }
+
+            return builder.ToImmutable();
         }
 
         internal ImmutableArray<DocumentId> GetRelatedDocumentIds(DocumentId documentId)
         {
-            var projectState = this.GetProjectState(documentId.ProjectId);
+            var projectState = this.GetLoadedProjectStateOrFail(documentId.ProjectId);
             if (projectState == null)
             {
                 // this document no longer exist
@@ -1922,21 +2110,19 @@ namespace Microsoft.CodeAnalysis
                 return ImmutableArray.Create<DocumentId>();
             }
 
+            var map = this.GetLinkedFilesMap();
             ImmutableArray<DocumentId> documentIds;
-            return _linkedFilesMap.TryGetValue(filePath, out documentIds)
+            return map.TryGetValue(filePath, out documentIds)
                 ? documentIds
                 : ImmutableArray.Create<DocumentId>();
         }
 
         private static ProjectDependencyGraph CreateDependencyGraph(
             IReadOnlyList<ProjectId> projectIds,
-            ImmutableDictionary<ProjectId, ProjectState> projectStates)
+            ImmutableDictionary<ProjectId, DeferredProjectState> projectStates)
         {
-            var map = projectStates.Values.Select(state => new KeyValuePair<ProjectId, ImmutableHashSet<ProjectId>>(
-                    state.Id,
-                    state.ProjectReferences.Where(pr => projectStates.ContainsKey(pr.ProjectId)).Select(pr => pr.ProjectId).ToImmutableHashSet()))
-                    .ToImmutableDictionary();
-
+            var map = projectStates.Values.Select(deferred => new KeyValuePair<ProjectId, ImmutableHashSet<ProjectId>>(deferred.Info.Id, deferred.Info.ReferencedProjectIds.ToImmutableHashSet()))
+                .ToImmutableDictionary();
             return new ProjectDependencyGraph(projectIds.ToImmutableArray(), map);
         }
 
@@ -2027,10 +2213,15 @@ namespace Microsoft.CodeAnalysis
                         || (DateTime.UtcNow - _timeOfLatestSolutionWithPartialCompilation).TotalSeconds >= 0.1
                         || _documentIdOfLatestSolutionWithPartialCompilation != documentId)
                     {
-                        var tracker = this.GetCompilationTracker(documentId.ProjectId);
+                        CompilationTracker tracker;
+                        if (!this.TryGetCompilationTracker(documentId.ProjectId, out tracker))
+                        {
+                            tracker = await this.GetCompilationTrackerAsync(documentId.ProjectId, cancellationToken).ConfigureAwait(false);
+                        }
+                        
                         var newTracker = tracker.FreezePartialStateWithTree(this, doc.State, tree, cancellationToken);
 
-                        var newIdToProjectStateMap = _projectIdToProjectStateMap.SetItem(documentId.ProjectId, newTracker.ProjectState);
+                        var newIdToProjectStateMap = _projectIdToProjectStateMap.SetItem(documentId.ProjectId, new DeferredProjectState(newTracker.ProjectState));
                         var newIdToTrackerMap = _projectIdToTrackerMap.SetItem(documentId.ProjectId, newTracker);
 
                         currentPartialSolution = this.Branch(
@@ -2102,7 +2293,21 @@ namespace Microsoft.CodeAnalysis
         /// </summary>
         internal Task<Compilation> GetCompilationAsync(ProjectId projectId, CancellationToken cancellationToken)
         {
-            return GetCompilationAsync(GetProject(projectId), cancellationToken);
+            Project project;
+            if (this.TryGetProject(projectId, out project))
+            {
+                return GetCompilationAsync(GetProject(projectId), cancellationToken);
+            }
+            else
+            {
+                return GetCompilationWorkerAsync(projectId, cancellationToken);
+            }
+        }
+
+        private async Task<Compilation> GetCompilationWorkerAsync(ProjectId projectId, CancellationToken cancellationToken)
+        {
+            var project = await this.GetProjectAsync(projectId, cancellationToken).ConfigureAwait(false);
+            return await this.GetCompilationAsync(project, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2111,9 +2316,28 @@ namespace Microsoft.CodeAnalysis
         /// </summary>
         internal Task<Compilation> GetCompilationAsync(Project project, CancellationToken cancellationToken)
         {
-            return project.SupportsCompilation
-                ? this.GetCompilationTracker(project.Id).GetCompilationAsync(this, cancellationToken)
-                : SpecializedTasks.Default<Compilation>();
+            if (project.SupportsCompilation)
+            {
+                CompilationTracker tracker;
+                if (this.TryGetCompilationTracker(project.Id, out tracker))
+                {
+                    return tracker.GetCompilationAsync(this, cancellationToken);
+                }
+                else
+                {
+                    return this.GetCompilationWorkerAsync(project, cancellationToken);
+                }
+            }
+            else
+            {
+                return SpecializedTasks.Default<Compilation>();
+            }
+        }
+
+        private async Task<Compilation> GetCompilationWorkerAsync(Project project, CancellationToken cancellationToken)
+        {
+            var tracker = await this.GetCompilationTrackerAsync(project.Id, cancellationToken).ConfigureAwait(false);
+            return await tracker.GetCompilationAsync(this, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2123,9 +2347,29 @@ namespace Microsoft.CodeAnalysis
         {
             // return HasAllInformation when compilation is not supported. 
             // regardless whether project support compilation or not, if projectInfo is not complete, we can't gurantee its reference completeness
-            return project.SupportsCompilation
-                ? this.GetCompilationTracker(project.Id).HasSuccessfullyLoadedAsync(this, cancellationToken)
-                : project.Solution.GetProjectState(project.Id).HasAllInformation ? SpecializedTasks.True : SpecializedTasks.False;
+            if (project.SupportsCompilation)
+            {
+                CompilationTracker tracker;
+                if (this.TryGetCompilationTracker(project.Id, out tracker))
+                {
+                    return tracker.HasSuccessfullyLoadedAsync(this, cancellationToken);
+                }
+                else
+                {
+                    return this.HasSuccessfullyLoadedWorkerAsync(project, cancellationToken);
+                }
+            }
+            else
+            {
+                // okay to use GetProjectState here because we already have reference to project
+                return project.Solution.GetLoadedProjectStateOrFail(project.Id).HasAllInformation ? SpecializedTasks.True : SpecializedTasks.False;
+            }
+        }
+
+        internal async Task<bool> HasSuccessfullyLoadedWorkerAsync(Project project, CancellationToken cancellationToken)
+        {
+            var tracker = await this.GetCompilationTrackerAsync(project.Id, cancellationToken).ConfigureAwait(false);
+            return await tracker.HasSuccessfullyLoadedAsync(this, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2166,10 +2410,30 @@ namespace Microsoft.CodeAnalysis
         {
             try
             {
+                CompilationTracker tracker;
+                if (this.TryGetCompilationTracker(projectReference.ProjectId, out tracker))
+                {
+                    return tracker.GetMetadataReferenceAsync(this, fromProject, projectReference, cancellationToken);
+                }
+                else
+                {
+                    return this.GetMetadataReferenceWorkerAsync(projectReference, fromProject, cancellationToken);
+                }
+            }
+            catch (Exception e) when (FatalError.ReportUnlessCanceled(e))
+            {
+                throw ExceptionUtilities.Unreachable;
+            }
+        }
+
+        private async Task<MetadataReference> GetMetadataReferenceWorkerAsync(ProjectReference projectReference, ProjectState fromProject, CancellationToken cancellationToken)
+        {
+            try
+            {
                 // Get the compilation state for this project.  If it's not already created, then this
                 // will create it.  Then force that state to completion and get a metadata reference to it.
-                var tracker = this.GetCompilationTracker(projectReference.ProjectId);
-                return tracker.GetMetadataReferenceAsync(this, fromProject, projectReference, cancellationToken);
+                var tracker = await this.GetCompilationTrackerAsync(projectReference.ProjectId, cancellationToken).ConfigureAwait(false);
+                return await tracker.GetMetadataReferenceAsync(this, fromProject, projectReference, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception e) when (FatalError.ReportUnlessCanceled(e))
             {
@@ -2213,7 +2477,8 @@ namespace Microsoft.CodeAnalysis
 
         internal async Task<bool> ContainsSymbolsWithNameAsync(ProjectId id, Func<string, bool> predicate, SymbolFilter filter, CancellationToken cancellationToken)
         {
-            var result = GetCompilationTracker(id).ContainsSymbolsWithNameFromDeclarationOnlyCompilation(predicate, filter, cancellationToken);
+            var tracker = await GetCompilationTrackerAsync(id, cancellationToken).ConfigureAwait(false);
+            var result = tracker.ContainsSymbolsWithNameFromDeclarationOnlyCompilation(predicate, filter, cancellationToken);
             if (result.HasValue)
             {
                 return result.Value;
@@ -2233,7 +2498,8 @@ namespace Microsoft.CodeAnalysis
         internal async Task<IEnumerable<Document>> GetDocumentsWithNameAsync(ProjectId id, Func<string, bool> predicate, SymbolFilter filter, CancellationToken cancellationToken)
         {
             // this will be used to find documents that contain declaration information in IDE cache such as DeclarationSyntaxTreeInfo for "NavigateTo"
-            var trees = GetCompilationTracker(id).GetSyntaxTreesWithNameFromDeclarationOnlyCompilation(predicate, filter, cancellationToken);
+            var tracker = await GetCompilationTrackerAsync(id, cancellationToken).ConfigureAwait(false);
+            var trees = tracker.GetSyntaxTreesWithNameFromDeclarationOnlyCompilation(predicate, filter, cancellationToken);
             if (trees != null)
             {
                 return ConvertTreesToDocuments(id, trees);
@@ -2292,7 +2558,7 @@ namespace Microsoft.CodeAnalysis
 
         private void CheckNotContainsProjectReference(ProjectId projectId, ProjectReference referencedProject)
         {
-            if (this.GetProjectState(projectId).ProjectReferences.Contains(referencedProject))
+            if (this.GetProjectStateOrBlock(projectId).ProjectReferences.Contains(referencedProject))
             {
                 throw new InvalidOperationException(WorkspacesResources.ProjectDirectlyReferencesTargetProject);
             }
@@ -2309,11 +2575,11 @@ namespace Microsoft.CodeAnalysis
 
         private void CheckNotSecondSubmissionReference(ProjectId projectId, ProjectId toProjectId)
         {
-            var projectState = GetProjectState(projectId);
+            var projectState = GetLoadedProjectStateOrFail(projectId);
 
-            if (projectState.IsSubmission && GetProjectState(toProjectId).IsSubmission)
+            if (projectState.IsSubmission && GetLoadedProjectStateOrFail(toProjectId).IsSubmission)
             {
-                if (projectState.ProjectReferences.Any(p => GetProjectState(p.ProjectId).IsSubmission))
+                if (projectState.ProjectReferences.Any(p => GetLoadedProjectStateOrFail(p.ProjectId).IsSubmission))
                 {
                     throw new InvalidOperationException(WorkspacesResources.InvalidSubmissionReference);
                 }

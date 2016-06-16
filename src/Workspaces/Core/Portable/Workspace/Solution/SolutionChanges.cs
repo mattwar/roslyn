@@ -35,9 +35,11 @@ namespace Microsoft.CodeAnalysis
             // if the project states are different then there is a change.
             foreach (var id in _newSolution.ProjectIds)
             {
-                var newState = _newSolution.GetProjectState(id);
-                var oldState = old.GetProjectState(id);
-                if (oldState != null && newState != null && newState != oldState)
+                var newState = _newSolution.GetDeferredProjectState(id);
+                var oldState = old.GetDeferredProjectState(id);
+                if (oldState != null && newState != null 
+                    && newState.Source != oldState.Source
+                    && (newState.Source.HasValue || oldState.Source.HasValue))
                 {
                     yield return _newSolution.GetProject(id).GetChanges(_oldSolution.GetProject(id));
                 }

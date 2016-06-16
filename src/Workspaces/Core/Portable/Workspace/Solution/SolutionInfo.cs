@@ -36,16 +36,42 @@ namespace Microsoft.CodeAnalysis
         /// </summary>
         public IReadOnlyList<ProjectInfo> Projects { get; }
 
+        /// <summary>
+        /// A list of deferred projects that may get loaded on demand.
+        /// </summary>
+        public IReadOnlyList<DeferredProjectInfo> DeferredProjects { get; }
+
+        /// <summary>
+        /// A <see cref="DeferredProjectLoader"/> that will be used to load the deferred projects.
+        /// </summary>
+        public DeferredProjectLoader DeferredProjectLoader { get; }
+
         private SolutionInfo(
             SolutionId id,
             VersionStamp version,
             string filePath,
-            IEnumerable<ProjectInfo> projects)
+            IEnumerable<ProjectInfo> projects,
+            IEnumerable<DeferredProjectInfo> deferredProjects,
+            DeferredProjectLoader deferredProjectLoader)
         {
             this.Id = id;
             this.Version = version;
             this.FilePath = filePath;
             this.Projects = projects.ToImmutableReadOnlyListOrEmpty();
+            this.DeferredProjects = deferredProjects.ToImmutableReadOnlyListOrEmpty();
+            this.DeferredProjectLoader = deferredProjectLoader;
+        }
+
+        /// <summary>
+        /// Create a new instance of a SolutionInfo.
+        /// </summary>
+        public static SolutionInfo Create(
+            SolutionId id,
+            VersionStamp version,
+            string filePath,
+            IEnumerable<ProjectInfo> projects)
+        {
+            return new SolutionInfo(id, version, filePath, projects, deferredProjects: null, deferredProjectLoader: null);
         }
 
         /// <summary>
@@ -55,9 +81,11 @@ namespace Microsoft.CodeAnalysis
             SolutionId id,
             VersionStamp version,
             string filePath = null,
-            IEnumerable<ProjectInfo> projects = null)
+            IEnumerable<ProjectInfo> projects = null,
+            IEnumerable<DeferredProjectInfo> deferredProjects = null,
+            DeferredProjectLoader deferredProjectLoader = null)
         {
-            return new SolutionInfo(id, version, filePath, projects);
+            return new SolutionInfo(id, version, filePath, projects, deferredProjects, deferredProjectLoader);
         }
     }
 }

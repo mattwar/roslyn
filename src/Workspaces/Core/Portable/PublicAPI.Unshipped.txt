@@ -13,13 +13,23 @@ Microsoft.CodeAnalysis.CodeStyle.NotificationOption.Name.get -> string
 Microsoft.CodeAnalysis.CodeStyle.NotificationOption.Name.set -> void
 Microsoft.CodeAnalysis.CodeStyle.NotificationOption.Value.get -> Microsoft.CodeAnalysis.DiagnosticSeverity
 Microsoft.CodeAnalysis.CodeStyle.NotificationOption.Value.set -> void
+Microsoft.CodeAnalysis.DeferredProjectInfo
+Microsoft.CodeAnalysis.DeferredProjectInfo.Id.get -> Microsoft.CodeAnalysis.ProjectId
+Microsoft.CodeAnalysis.DeferredProjectInfo.ReferencedProjectIds.get -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.ProjectId>
+Microsoft.CodeAnalysis.DeferredProjectLoader
+Microsoft.CodeAnalysis.DeferredProjectLoader.DeferredProjectLoader() -> void
 Microsoft.CodeAnalysis.Document.Options.get -> Microsoft.CodeAnalysis.Options.DocumentOptionSet
 Microsoft.CodeAnalysis.Editing.SyntaxGenerator.AddSwitchSections(Microsoft.CodeAnalysis.SyntaxNode switchStatement, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.SyntaxNode> switchSections) -> Microsoft.CodeAnalysis.SyntaxNode
 Microsoft.CodeAnalysis.Options.DocumentOptionSet
 Microsoft.CodeAnalysis.Options.DocumentOptionSet.GetOption<T>(Microsoft.CodeAnalysis.Options.PerLanguageOption<T> option) -> T
 Microsoft.CodeAnalysis.Options.OptionSet.OptionSet() -> void
+Microsoft.CodeAnalysis.Solution.GetProjectAsync(Microsoft.CodeAnalysis.ProjectId projectId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Microsoft.CodeAnalysis.Project>
 Microsoft.CodeAnalysis.Solution.Options.get -> Microsoft.CodeAnalysis.Options.OptionSet
+Microsoft.CodeAnalysis.Solution.TryGetProject(Microsoft.CodeAnalysis.ProjectId projectId, out Microsoft.CodeAnalysis.Project project) -> bool
+Microsoft.CodeAnalysis.SolutionInfo.DeferredProjectLoader.get -> Microsoft.CodeAnalysis.DeferredProjectLoader
+Microsoft.CodeAnalysis.SolutionInfo.DeferredProjects.get -> System.Collections.Generic.IReadOnlyList<Microsoft.CodeAnalysis.DeferredProjectInfo>
 Microsoft.CodeAnalysis.Workspace.UpdateGeneratedDocumentsIfNecessary(Microsoft.CodeAnalysis.ProjectId projectId) -> void
+abstract Microsoft.CodeAnalysis.DeferredProjectLoader.GetProjectInfoAsync(Microsoft.CodeAnalysis.ProjectId projectId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<Microsoft.CodeAnalysis.ProjectInfo>
 abstract Microsoft.CodeAnalysis.Editing.SyntaxGenerator.GetSwitchSections(Microsoft.CodeAnalysis.SyntaxNode switchStatement) -> System.Collections.Generic.IReadOnlyList<Microsoft.CodeAnalysis.SyntaxNode>
 abstract Microsoft.CodeAnalysis.Editing.SyntaxGenerator.InsertSwitchSections(Microsoft.CodeAnalysis.SyntaxNode switchStatement, int index, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.SyntaxNode> switchSections) -> Microsoft.CodeAnalysis.SyntaxNode
 abstract Microsoft.CodeAnalysis.Editing.SyntaxGenerator.NameOfExpression(Microsoft.CodeAnalysis.SyntaxNode expression) -> Microsoft.CodeAnalysis.SyntaxNode
@@ -32,12 +42,14 @@ override Microsoft.CodeAnalysis.Options.DocumentOptionSet.WithChangedOption<T>(M
 override Microsoft.CodeAnalysis.Options.DocumentOptionSet.WithChangedOption<T>(Microsoft.CodeAnalysis.Options.PerLanguageOption<T> option, string language, T value) -> Microsoft.CodeAnalysis.Options.OptionSet
 static Microsoft.CodeAnalysis.CodeStyle.CodeStyleOption<T>.Default.get -> Microsoft.CodeAnalysis.CodeStyle.CodeStyleOption<T>
 static Microsoft.CodeAnalysis.CodeStyle.CodeStyleOption<T>.FromXElement(System.Xml.Linq.XElement element) -> Microsoft.CodeAnalysis.CodeStyle.CodeStyleOption<T>
+static Microsoft.CodeAnalysis.DeferredProjectInfo.Create(Microsoft.CodeAnalysis.ProjectId id, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectId> referencedProjectIds = null) -> Microsoft.CodeAnalysis.DeferredProjectInfo
 static Microsoft.CodeAnalysis.Editing.DeclarationModifiers.TryParse(string value, out Microsoft.CodeAnalysis.Editing.DeclarationModifiers modifiers) -> bool
 static Microsoft.CodeAnalysis.Simplification.SimplificationOptions.NamingPreferences.get -> Microsoft.CodeAnalysis.Options.PerLanguageOption<string>
 static Microsoft.CodeAnalysis.Simplification.SimplificationOptions.QualifyEventAccess.get -> Microsoft.CodeAnalysis.Options.PerLanguageOption<bool>
 static Microsoft.CodeAnalysis.Simplification.SimplificationOptions.QualifyFieldAccess.get -> Microsoft.CodeAnalysis.Options.PerLanguageOption<bool>
 static Microsoft.CodeAnalysis.Simplification.SimplificationOptions.QualifyMethodAccess.get -> Microsoft.CodeAnalysis.Options.PerLanguageOption<bool>
 static Microsoft.CodeAnalysis.Simplification.SimplificationOptions.QualifyPropertyAccess.get -> Microsoft.CodeAnalysis.Options.PerLanguageOption<bool>
+static Microsoft.CodeAnalysis.SolutionInfo.Create(Microsoft.CodeAnalysis.SolutionId id, Microsoft.CodeAnalysis.VersionStamp version, string filePath = null, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectInfo> projects = null, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.DeferredProjectInfo> deferredProjects = null, Microsoft.CodeAnalysis.DeferredProjectLoader deferredProjectLoader = null) -> Microsoft.CodeAnalysis.SolutionInfo
 static readonly Microsoft.CodeAnalysis.CodeStyle.CodeStyleOptions.QualifyEventAccess -> Microsoft.CodeAnalysis.Options.PerLanguageOption<Microsoft.CodeAnalysis.CodeStyle.CodeStyleOption<bool>>
 static readonly Microsoft.CodeAnalysis.CodeStyle.CodeStyleOptions.QualifyFieldAccess -> Microsoft.CodeAnalysis.Options.PerLanguageOption<Microsoft.CodeAnalysis.CodeStyle.CodeStyleOption<bool>>
 static readonly Microsoft.CodeAnalysis.CodeStyle.CodeStyleOptions.QualifyMethodAccess -> Microsoft.CodeAnalysis.Options.PerLanguageOption<Microsoft.CodeAnalysis.CodeStyle.CodeStyleOption<bool>>

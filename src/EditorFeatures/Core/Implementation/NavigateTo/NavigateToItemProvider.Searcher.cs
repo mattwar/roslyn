@@ -46,7 +46,7 @@ namespace Microsoft.CodeAnalysis.Editor.Implementation.NavigateTo
                 var navigateToSearch = Logger.LogBlock(FunctionId.NavigateTo_Search, _cancellationToken);
                 var asyncToken = _asyncListener.BeginAsyncOperation(GetType() + ".Search");
 
-                _progress.AddItems(_solution.Projects.Count());
+                _progress.AddItems(_solution.ProjectIds.Count());
 
                 // make sure we run actual search from other thread. and let this thread return to caller as soon as possible.
                 var dummy = Task.Run(() => Search(navigateToSearch, asyncToken), _cancellationToken);

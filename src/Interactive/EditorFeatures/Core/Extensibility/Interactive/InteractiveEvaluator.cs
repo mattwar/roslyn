@@ -541,7 +541,7 @@ namespace Microsoft.CodeAnalysis.Editor.Interactive
             var solution = _workspace.CurrentSolution;
 
             // Maybe called after reset, when no submissions are available.
-            var optionsOpt = (_currentSubmissionProjectId != null) ? solution.GetProjectState(_currentSubmissionProjectId).CompilationOptions : null;
+            var optionsOpt = (_currentSubmissionProjectId != null) ? solution.GetProject(_currentSubmissionProjectId).CompilationOptions : null;
 
             if (changedWorkingDirectory != null)
             {

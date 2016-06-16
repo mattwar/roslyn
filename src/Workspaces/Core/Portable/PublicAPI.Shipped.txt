@@ -1283,7 +1283,7 @@ static Microsoft.CodeAnalysis.Simplification.Simplifier.SpecialTypeAnnotation.ge
 static Microsoft.CodeAnalysis.SolutionId.CreateNewId(string debugName = null) -> Microsoft.CodeAnalysis.SolutionId
 static Microsoft.CodeAnalysis.SolutionId.operator !=(Microsoft.CodeAnalysis.SolutionId left, Microsoft.CodeAnalysis.SolutionId right) -> bool
 static Microsoft.CodeAnalysis.SolutionId.operator ==(Microsoft.CodeAnalysis.SolutionId left, Microsoft.CodeAnalysis.SolutionId right) -> bool
-static Microsoft.CodeAnalysis.SolutionInfo.Create(Microsoft.CodeAnalysis.SolutionId id, Microsoft.CodeAnalysis.VersionStamp version, string filePath = null, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectInfo> projects = null) -> Microsoft.CodeAnalysis.SolutionInfo
+static Microsoft.CodeAnalysis.SolutionInfo.Create(Microsoft.CodeAnalysis.SolutionId id, Microsoft.CodeAnalysis.VersionStamp version, string filePath, System.Collections.Generic.IEnumerable<Microsoft.CodeAnalysis.ProjectInfo> projects) -> Microsoft.CodeAnalysis.SolutionInfo
 static Microsoft.CodeAnalysis.TextAndVersion.Create(Microsoft.CodeAnalysis.Text.SourceText text, Microsoft.CodeAnalysis.VersionStamp version, string filePath = null) -> Microsoft.CodeAnalysis.TextAndVersion
 static Microsoft.CodeAnalysis.TextLoader.From(Microsoft.CodeAnalysis.Text.SourceTextContainer container, Microsoft.CodeAnalysis.VersionStamp version, string filePath = null) -> Microsoft.CodeAnalysis.TextLoader
 static Microsoft.CodeAnalysis.TextLoader.From(Microsoft.CodeAnalysis.TextAndVersion textAndVersion) -> Microsoft.CodeAnalysis.TextLoader

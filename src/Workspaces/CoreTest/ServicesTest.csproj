@@ -98,6 +98,7 @@
     <Compile Include="UtilityTest\EditDistanceTests.cs" />
     <Compile Include="UtilityTest\EtwLoggingTests.cs" />
     <Compile Include="UtilityTest\ExceptionHelpersTests.cs" />
+    <Compile Include="WorkspaceTests\DeferredProjectTests.cs" />
     <Compile Include="WorkspaceTests\FileSet.cs" />
     <Compile Include="FindAllDeclarationsTests.cs" />
     <Compile Include="FindAllDeclarationsTests.TestSolutionsAndProject.cs" />
