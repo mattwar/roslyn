@@ -12,6 +12,15 @@ namespace Microsoft.CodeAnalysis.Shared.Extensions
 {
     internal static partial class IEnumerableExtensions
     {
+        public static Task<IEnumerable<S>> SelectAsync<T, S>(this IEnumerable<T> sequence, Func<T, CancellationToken, Task<S>> selector, CancellationToken cancellationToken)
+        {
+            var whenAllTask = Task.WhenAll(sequence.Select(e => selector(e, cancellationToken)));
+
+            return whenAllTask.SafeContinueWith(allResultsTask =>
+                allResultsTask.Result.AsEnumerable(),
+                cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
+        }
+
         public static Task<IEnumerable<S>> SelectManyAsync<T, S>(this IEnumerable<T> sequence, Func<T, CancellationToken, Task<IEnumerable<S>>> selector, CancellationToken cancellationToken)
         {
             var whenAllTask = Task.WhenAll(sequence.Select(e => selector(e, cancellationToken)));

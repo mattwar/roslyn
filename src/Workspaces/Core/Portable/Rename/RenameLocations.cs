@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.Internal.Log;
 using Microsoft.CodeAnalysis.Options;
 using Microsoft.CodeAnalysis.Shared.Extensions;
 using Roslyn.Utilities;
+using System.Collections.Immutable;
 
 namespace Microsoft.CodeAnalysis.Rename
 {
@@ -110,6 +111,24 @@ namespace Microsoft.CodeAnalysis.Rename
                 var originalSymbolResult = await AddLocationsReferenceSymbolsAsync(symbol, solution, cancellationToken).ConfigureAwait(false);
                 var intermediateResult = new RenameLocations(symbol, solution, optionSet, originalSymbolResult, overloadsResult: null, stringsResult: null, commentsResult: null);
 
+                return await intermediateResult.FindWithUpdatedOptionsAsync(optionSet, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Find the locations that need to be renamed.
+        /// </summary>
+        internal static async Task<RenameLocations> FindAsync(
+            ISymbol symbol, Solution solution, 
+            ImmutableHashSet<RenameLocation> locations, ImmutableArray<ReferenceLocation> implicitLocations, ImmutableArray<ISymbol> referencedSymbols,
+            OptionSet optionSet, CancellationToken cancellationToken)
+        {
+            Contract.ThrowIfNull(symbol);
+            using (Logger.LogBlock(FunctionId.Rename_AllRenameLocations, cancellationToken))
+            {
+                symbol = await ReferenceProcessing.FindDefinitionSymbolAsync(symbol, solution, cancellationToken).ConfigureAwait(false);
+                var originalSymbolResult = new SearchResult(locations, implicitLocations, referencedSymbols);
+                var intermediateResult = new RenameLocations(symbol, solution, optionSet, originalSymbolResult, overloadsResult: null, stringsResult: null, commentsResult: null);
                 return await intermediateResult.FindWithUpdatedOptionsAsync(optionSet, cancellationToken).ConfigureAwait(false);
             }
         }

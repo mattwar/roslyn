@@ -223,6 +223,16 @@
     <Compile Include="Diagnostics\AbstractHostDiagnosticUpdateSource.cs" />
     <Compile Include="Diagnostics\Analyzers\QualifyMemberAccessDiagnosticAnalyzerBase.cs" />
     <Compile Include="Diagnostics\Analyzers\NamingStyles\Capitalization.cs" />
+    <Compile Include="Rename\CommonRenameExtensions.cs" />
+    <Compile Include="Rename\CommonRenameService.cs" />
+    <Compile Include="Rename\RenameChange.cs" />
+    <Compile Include="Rename\RenameChangeKind.cs" />
+    <Compile Include="Rename\RenameItem.cs" />
+    <Compile Include="Rename\RenameLocations.cs" />
+    <Compile Include="Rename\RenameResult.cs" />
+    <Compile Include="Rename\RenameInfo.cs" />
+    <Compile Include="Rename\RenameLocation.cs" />
+    <Compile Include="Rename\RenameService.cs" />
     <Compile Include="ReplacePropertyWithMethods\AbstractReplacePropertyWithMethodsService.cs" />
     <Compile Include="ReplacePropertyWithMethods\IReplacePropertyWithMethodsService.cs" />
     <Compile Include="ReplacePropertyWithMethods\ReplacePropertyWithMethodsCodeRefactoringProvider.cs" />
