@@ -84,6 +84,8 @@ namespace Microsoft.VisualStudio.LanguageServices.Setup
             LoadComponentsInUIContextOnceSolutionFullyLoaded();
 
             _solutionEventMonitor = new SolutionEventMonitor(_workspace);
+
+            Command1.Initialize(this);
         }
 
         private void InitializeColors()
