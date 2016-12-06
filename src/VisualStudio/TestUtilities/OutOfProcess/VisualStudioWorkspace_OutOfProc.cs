@@ -53,5 +53,15 @@ namespace Roslyn.VisualStudio.Test.Utilities.OutOfProcess
         {
             _inProc.CleanUpWaitingService();
         }
+
+        public string[] GetMetadataReferenceNames(string projectName)
+        {
+            return _inProc.GetMetadataReferenceNames(projectName);
+        }
+
+        public void RemoveMetadataReference(string projectName, string referenceName)
+        {
+            _inProc.RemoveMetadataReference(projectName, referenceName);
+        }
     }
 }

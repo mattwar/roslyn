@@ -30,6 +30,7 @@
     <Compile Include="CSharp\CSharpIntelliSense.cs" />
     <Compile Include="CSharp\CSharpInteractiveDemo.cs" />
     <Compile Include="AbstractEditorTest.cs" />
+    <Compile Include="CSharp\CSharpWorkspace.cs" />
     <Compile Include="SharedIntegrationHostFixture.cs" />
     <Compile Include="VisualBasic\BasicAutomaticBraceCompletion.cs" />
     <Compile Include="VisualBasic\BasicBuild.cs" />

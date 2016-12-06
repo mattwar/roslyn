@@ -103,5 +103,20 @@ namespace Roslyn.VisualStudio.Test.Utilities.InProcess
                 GetWaitingService().EnableActiveTokenTracking(true);
             });
         }
+
+        public string[] GetMetadataReferenceNames(string projectName)
+        {
+            var project = _visualStudioWorkspace.CurrentSolution.Projects.First(p => p.Name == projectName);
+            return project.MetadataReferences.OfType<PortableExecutableReference>().Select(mr => mr.FilePath).ToArray();
+        }
+
+        public void RemoveMetadataReference(string projectName, string referenceName)
+        {
+            var project = _visualStudioWorkspace.CurrentSolution.Projects.First(p => p.Name == projectName);
+            var reference = project.MetadataReferences.OfType<PortableExecutableReference>().First(mr => mr.FilePath == referenceName);
+
+            var newProject = project.RemoveMetadataReference(reference);
+            _visualStudioWorkspace.TryApplyChanges(newProject.Solution);
+        }
     }
 }
