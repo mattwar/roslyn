@@ -453,11 +453,11 @@ namespace Microsoft.CodeAnalysis.MSBuild
         {
             if (string.IsNullOrWhiteSpace(message))
             {
-                return string.Format(WorkspaceDesktopResources.Msbuild_failed_when_processing_the_file_0, projectFilePath);
+                return string.Format(WorkspaceMsbuildResources.Msbuild_failed_when_processing_the_file_0, projectFilePath);
             }
             else
             {
-                return string.Format(WorkspaceDesktopResources.Msbuild_failed_when_processing_the_file_0_with_message_1, projectFilePath, message);
+                return string.Format(WorkspaceMsbuildResources.Msbuild_failed_when_processing_the_file_0_with_message_1, projectFilePath, message);
             }
         }
 

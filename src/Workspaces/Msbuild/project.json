@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "Microsoft.Build": "14.3.0",
+    "Microsoft.Build.Tasks.Core": "14.3.0",
+  },
+  "frameworks": {
+    "net46": { }
+  }
+}

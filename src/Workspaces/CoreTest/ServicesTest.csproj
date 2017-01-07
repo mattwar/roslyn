@@ -56,6 +56,10 @@
       <Project>{21B239D0-D144-430F-A394-C066D58EE267}</Project>
       <Name>CSharpWorkspace</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Msbuild\MsbuildWorkspace.csproj">
+      <Project>{2e87fa96-50bb-4607-8676-46521599f999}</Project>
+      <Name>MsbuildWorkspace</Name>
+    </ProjectReference>
     <ProjectReference Include="..\VisualBasic\Portable\BasicWorkspace.vbproj">
       <Project>{57CA988D-F010-4BF2-9A2E-07D6DCD2FF2C}</Project>
       <Name>BasicWorkspace</Name>

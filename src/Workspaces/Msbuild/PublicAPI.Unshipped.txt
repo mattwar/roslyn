@@ -1,0 +1,4 @@
+Microsoft.CodeAnalysis.Host.Mef.MSBuildHostServices
+Microsoft.CodeAnalysis.MSBuild.MSBuildWorkspace.Diagnostics.get -> System.Collections.Immutable.ImmutableList<Microsoft.CodeAnalysis.WorkspaceDiagnostic>
+static Microsoft.CodeAnalysis.Host.Mef.MSBuildHostServices.DefaultAssemblies.get -> System.Collections.Immutable.ImmutableArray<System.Reflection.Assembly>
+static Microsoft.CodeAnalysis.Host.Mef.MSBuildHostServices.DefaultServices.get -> Microsoft.CodeAnalysis.Host.Mef.MefHostServices
